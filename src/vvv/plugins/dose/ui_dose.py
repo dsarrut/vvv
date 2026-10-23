@@ -336,10 +336,7 @@ class DosePluginUI(PluginTagMixin):
                 ww = getattr(target_vs.display, "ww", 100.0)
                 _, dynamic_speed, dpg_fmt = compute_adaptive_step_and_speed(ww)
                 dpg.configure_item(thr_tag, speed=dynamic_speed, format=dpg_fmt, enabled=has_thr)
-                if dpg.does_item_exist(f"btn_{thr_tag}_minus"):
-                    dpg.configure_item(f"btn_{thr_tag}_minus", enabled=has_thr)
-                if dpg.does_item_exist(f"btn_{thr_tag}_plus"):
-                    dpg.configure_item(f"btn_{thr_tag}_plus", enabled=has_thr)
+                # + / - stay enabled while the threshold is off: a click turns it on
 
                 if has_thr and not dpg.is_item_active(thr_tag):
                     dpg.set_value(thr_tag, cur_thr)

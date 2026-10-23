@@ -1462,3 +1462,45 @@ def test_nav_buttons_muted_for_tools_not_applicable(headless_gui_app):
     viewer.volume.unit = "Gy"  # now a dose image
     gui.build_vertical_nav()
     assert dpg.get_item_theme("nav_btn_dose_plugin") == "theme_rounded_nav"
+
+
+def test_threshold_step_buttons_turn_threshold_on(
+    headless_gui_app, synthetic_volume_factory
+):
+    """U14: while Min Thr is off, its + / - stay enabled and a click turns it on
+    (fusion and intensity panels)."""
+    controller, gui, viewer, base_id = headless_gui_app
+    vs = viewer.view_state
+
+    # Intensity panel: base image, no threshold
+    vs.display.min_threshold = None
+    gui._refresh_all_ui_panels()
+    intensity = gui._plugin_map["intensity_plugin"]
+    gui._call_plugin(intensity, "update", gui.plugin_api)
+    c = intensity._controller
+    drag = c._t("drag_min_threshold")
+    assert dpg.get_item_configuration(drag)["enabled"] is False
+    assert dpg.get_item_configuration(f"btn_{drag}_plus")["enabled"] is True
+    dpg.set_value(drag, 10.0)
+    c.on_step_button_clicked(None, None, {"tag": drag, "dir": 1})
+    assert vs.display.min_threshold is not None and vs.display.min_threshold > 10.0
+    assert dpg.get_value(c._t("check_min_threshold")) is True
+
+    # Fusion panel: overlay without threshold
+    ov_id = controller.file.load_image(
+        synthetic_volume_factory("overlay.nii.gz", val=500.0)
+    )
+    gui.fusion_ui.on_fusion_target_selected(
+        None, controller.get_image_display_name(ov_id)[0], None
+    )
+    assert controller.wait_for_jobs(timeout=10)
+    ov_vs = controller.view_states[ov_id]
+    ov_vs.display.min_threshold = None
+    gui.fusion_ui.refresh_fusion_ui()
+    assert dpg.get_item_configuration("drag_fusion_threshold")["enabled"] is False
+    assert dpg.get_item_configuration("btn_drag_fusion_threshold_minus")["enabled"]
+    gui.fusion_ui.on_step_button_clicked(
+        None, None, {"tag": "drag_fusion_threshold", "dir": -1}
+    )
+    assert ov_vs.display.min_threshold is not None
+    assert dpg.get_value("check_fusion_threshold") is True

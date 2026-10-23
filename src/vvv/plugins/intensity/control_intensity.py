@@ -181,9 +181,10 @@ class IntensityController(PluginTagMixin):
                 dpg.set_value(drag_thr_tag, thr)
             thr_enabled = has_image and not is_rgb and has_thr
             dpg.configure_item(drag_thr_tag, enabled=thr_enabled)
+            # + / - stay usable while the threshold is off: a click turns it on
             for btn in (f"btn_{drag_thr_tag}_minus", f"btn_{drag_thr_tag}_plus"):
                 if dpg.does_item_exist(btn):
-                    dpg.configure_item(btn, enabled=thr_enabled)
+                    dpg.configure_item(btn, enabled=(has_image and not is_rgb))
 
         minmax_tag = self._t("minmax")
         if dpg.does_item_exist(minmax_tag):

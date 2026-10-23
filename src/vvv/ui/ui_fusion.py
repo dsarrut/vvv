@@ -352,14 +352,13 @@ class FusionUI:
                     dpg.set_value("drag_fusion_threshold", thr)
                 thr_enabled = has_overlay and has_thr
                 dpg.configure_item("drag_fusion_threshold", enabled=thr_enabled)
-                if dpg.does_item_exist("btn_drag_fusion_threshold_minus"):
-                    dpg.configure_item(
-                        "btn_drag_fusion_threshold_minus", enabled=thr_enabled
-                    )
-                if dpg.does_item_exist("btn_drag_fusion_threshold_plus"):
-                    dpg.configure_item(
-                        "btn_drag_fusion_threshold_plus", enabled=thr_enabled
-                    )
+                # + / - stay usable while the threshold is off: a click turns it on
+                for btn in (
+                    "btn_drag_fusion_threshold_minus",
+                    "btn_drag_fusion_threshold_plus",
+                ):
+                    if dpg.does_item_exist(btn):
+                        dpg.configure_item(btn, enabled=has_overlay)
 
                 if has_overlay and ov_vs:
                     _, dynamic_speed, dpg_fmt = compute_adaptive_step_and_speed(
@@ -523,16 +522,7 @@ class FusionUI:
             has_thr = ov_vs.display.min_threshold is not None
             if dpg.get_value("check_fusion_threshold") != has_thr:
                 dpg.set_value("check_fusion_threshold", has_thr)
-                thr_enabled = has_thr
-                dpg.configure_item("drag_fusion_threshold", enabled=thr_enabled)
-                if dpg.does_item_exist("btn_drag_fusion_threshold_minus"):
-                    dpg.configure_item(
-                        "btn_drag_fusion_threshold_minus", enabled=thr_enabled
-                    )
-                if dpg.does_item_exist("btn_drag_fusion_threshold_plus"):
-                    dpg.configure_item(
-                        "btn_drag_fusion_threshold_plus", enabled=thr_enabled
-                    )
+                dpg.configure_item("drag_fusion_threshold", enabled=has_thr)
 
         # 3. Overlay Colormap
         if dpg.does_item_exist("combo_fusion_colormap") and not dpg.is_item_active(
