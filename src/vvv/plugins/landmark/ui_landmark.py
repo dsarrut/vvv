@@ -2,13 +2,22 @@ import os
 import math
 import dearpygui.dearpygui as dpg
 from vvv.ui.ui_components import (
+    ICON_SAVE,
+    ICON_SAVE_AS,
+    ICON_ADD,
+    build_icon_button,
     build_section_title,
     build_help_button,
     build_beginner_tooltip,
+    build_tooltip,
     build_delete_button,
     build_name_filter_bar,
     build_batch_action_toolbar,
     build_renamable_input,
+    set_filter_count,
+    set_filter_invert_state,
+    set_sort_button,
+    set_item_show,
 )
 from vvv.plugins.plugin_api import PluginTagMixin
 from .control_landmark import LandmarkPluginController
@@ -21,9 +30,12 @@ class LandmarkPluginUI(PluginTagMixin):
         self._last_state_key = None
         self._api = None
 
-    def _bind_icon_font(self, item):
+    def _style_icon_button(self, item):
+        """Icon font + transparent icon button theme (black row background)."""
         if dpg.does_item_exist("icon_font_tag"):
             dpg.bind_item_font(item, "icon_font_tag")
+        if dpg.does_item_exist("icon_button_theme"):
+            dpg.bind_item_theme(item, "icon_button_theme")
 
     def on_btn_enhanced_vis_clicked(self, sender, app_data, user_data=None):
         new_val = not self._c.is_enhanced_vis()
@@ -106,6 +118,22 @@ class LandmarkPluginUI(PluginTagMixin):
         self._c.on_batch_reset_colors()
         self._last_state_key = None
 
+    # Filter + batch toolbar: greyed out while there is no landmark to act on
+    _LIST_CONTROLS = (
+        "input_filter", "btn_sort", "btn_filter_invert", "btn_clear_filter",
+        "lm_batch_color", "lm_batch_reset_colors", "lm_batch_toggle_visible",
+        "lm_batch_toggle_names", "lm_batch_snap", "lm_batch_delete",
+    )
+
+    def _set_list_controls_enabled(self, enabled):
+        for name in self._LIST_CONTROLS:
+            if dpg.does_item_exist(self._t(name)):
+                dpg.configure_item(self._t(name), enabled=enabled)
+
+    def on_toggle_filter_invert_clicked(self):
+        self._c.on_toggle_filter_invert()
+        self._last_state_key = None
+
     def create_ui(self, parent, api) -> None:
         self._api = api
         cfg_c = api.get_ui_config()["colors"]
@@ -131,16 +159,12 @@ class LandmarkPluginUI(PluginTagMixin):
 
             # --- Top Action Bar ---
             with dpg.group(horizontal=True):
-                btn_add = dpg.add_button(
-                    label="Add",
+                build_icon_button(
+                    icon=ICON_ADD,
                     tag=self._t("btn_add"),
                     callback=self._c.on_btn_add_clicked,
-                )
-                build_beginner_tooltip(
-                    btn_add,
-                    "Adds a 3D landmark at the current physical crosshair coordinate.\n"
-                    "Shortcut: Press Space bar while hovering over an active viewer.",
-                    api,
+                    tooltip="Add a landmark at the crosshair (Space)",
+                    api=api,
                 )
 
                 btn_enhanced = dpg.add_button(
@@ -149,66 +173,83 @@ class LandmarkPluginUI(PluginTagMixin):
                     width=25,
                     callback=self.on_btn_enhanced_vis_clicked,
                 )
-                self._bind_icon_font(btn_enhanced)
+                self._style_icon_button(btn_enhanced)
                 if dpg.does_item_exist("icon_button_theme"):
                     dpg.bind_item_theme(btn_enhanced, "icon_button_theme")
-                build_beginner_tooltip(
+                build_tooltip(
                     btn_enhanced,
                     "Toggle Enhanced Visualization Mode:\n"
                     "• High-contrast text labels with background badges\n"
                     "• Larger markers on adjacent slices with depth arrows (^ / v)\n"
                     "• Extended slice visibility range and contrast halos",
                     api,
+                    always_on=True,
                 )
 
                 btn_load = dpg.add_button(
                     label="\uf07c",
+                    width=20,
                     tag=self._t("btn_load"),
                     callback=self._c.on_btn_load_clicked,
                 )
-                self._bind_icon_font(btn_load)
-                build_beginner_tooltip(
+                self._style_icon_button(btn_load)
+                if dpg.does_item_exist("icon_button_theme"):
+                    dpg.bind_item_theme(btn_load, "icon_button_theme")
+                build_tooltip(
                     btn_load,
                     "Load landmarks from a .json or .csv file.",
                     api,
-                )
-
-                btn_save_as = dpg.add_button(
-                    label="\uf019",
-                    tag=self._t("btn_save_as"),
-                    callback=self._c.on_btn_save_as_clicked,
-                )
-                self._bind_icon_font(btn_save_as)
-                build_beginner_tooltip(
-                    btn_save_as,
-                    "Save landmarks as... (choose new file name)",
-                    api,
+                    always_on=True,
                 )
 
                 btn_save = dpg.add_button(
-                    label="\uf0c7",
+                    label=ICON_SAVE,
+                    width=20,
                     tag=self._t("btn_save"),
                     callback=self._c.on_btn_save_clicked,
                     show=False,
                 )
-                self._bind_icon_font(btn_save)
-                build_beginner_tooltip(
+                self._style_icon_button(btn_save)
+                if dpg.does_item_exist("icon_button_theme"):
+                    dpg.bind_item_theme(btn_save, "icon_button_theme")
+                build_tooltip(
                     btn_save,
                     "Save landmarks to file.",
                     api,
+                    always_on=True,
+                )
+
+                btn_save_as = dpg.add_button(
+                    label=ICON_SAVE_AS,
+                    width=20,
+                    tag=self._t("btn_save_as"),
+                    callback=self._c.on_btn_save_as_clicked,
+                )
+                self._style_icon_button(btn_save_as)
+                if dpg.does_item_exist("icon_button_theme"):
+                    dpg.bind_item_theme(btn_save_as, "icon_button_theme")
+                build_tooltip(
+                    btn_save_as,
+                    "Save landmarks as... (choose new file name)",
+                    api,
+                    always_on=True,
                 )
 
                 btn_reload = dpg.add_button(
                     label="\uf01e",
+                    width=20,
                     tag=self._t("btn_reload"),
                     callback=self._c.on_btn_reload_clicked,
                     show=False,
                 )
-                self._bind_icon_font(btn_reload)
-                build_beginner_tooltip(
+                self._style_icon_button(btn_reload)
+                if dpg.does_item_exist("icon_button_theme"):
+                    dpg.bind_item_theme(btn_reload, "icon_button_theme")
+                build_tooltip(
                     btn_reload,
                     "Reload landmarks from disk.",
                     api,
+                    always_on=True,
                 )
 
                 build_help_button(
@@ -237,9 +278,13 @@ class LandmarkPluginUI(PluginTagMixin):
                 btn_clear_tag=self._t("btn_clear_filter"),
                 on_filter_changed=self._c.on_filter_changed,
                 on_clear_clicked=self.on_clear_filter_clicked,
-                hint="Filter landmarks by name...",
-                width=180,
                 api=api,
+                btn_invert_tag=self._t("btn_filter_invert"),
+                on_invert_clicked=self.on_toggle_filter_invert_clicked,
+                btn_sort_tag=self._t("btn_sort"),
+                on_sort_clicked=self._c.on_sort_landmarks,
+                sort_tooltip="Sort landmarks alphabetically",
+                count_tag=self._t("filter_count"),
             )
 
             build_batch_action_toolbar(
@@ -251,13 +296,6 @@ class LandmarkPluginUI(PluginTagMixin):
                 on_snap_clicked=self._c.on_btn_snap_all_clicked,
                 on_delete_clicked=self._c.on_batch_delete_clicked,
                 api=api,
-            )
-
-            # --- Footer Landmark Counter ---
-            dpg.add_text(
-                "Landmarks: 0",
-                tag=self._t("footer_counter"),
-                color=cfg_c["text_dim"],
             )
 
             dpg.add_spacer(height=5)
@@ -299,21 +337,28 @@ class LandmarkPluginUI(PluginTagMixin):
                 dpg.set_value(active_title, "No Image Selected")
 
         table_id = self._t("list_table")
-        footer_id = self._t("footer_counter")
+        count_id = self._t("filter_count")
         if not dpg.does_item_exist(table_id):
             return
 
         if not has_image:
             dpg.delete_item(table_id, children_only=True, slot=1)
-            if dpg.does_item_exist(footer_id):
-                dpg.set_value(footer_id, "Landmarks: 0")
+            set_filter_count(count_id, 0, 0)
+            self._set_list_controls_enabled(False)
             self._last_state_key = None
             return
 
         vs_id = viewer.image_id
         landmarks = self._c.get_landmarks(vs_id)
-        filter_text = self._c.landmark_filters.get(vs_id, "").lower()
+        self._set_list_controls_enabled(bool(landmarks))
+        filter_text = self._c.landmark_filters.get(vs_id, "")
+        invert = self._c.landmark_filter_inverts.get(vs_id, False)
+        listed = self._c.listed_landmarks(vs_id)
         file_path = self._c.landmarks_file_path.get(vs_id)
+        set_filter_invert_state(self._t("btn_filter_invert"), invert)
+
+        sort_order = self._c.landmark_sort_orders.get(vs_id, 0)
+        set_sort_button(self._t("btn_sort"), sort_order)
 
         # Resync the visible filter box to this image's own remembered filter —
         # otherwise switching images leaves stale text in the box while the
@@ -348,11 +393,9 @@ class LandmarkPluginUI(PluginTagMixin):
                     color=outdated_color if is_outdated else cfg_c["text_dim"],
                 )
             if dpg.does_item_exist(btn_save_tag):
-                dpg.configure_item(btn_save_tag, show=True)
+                set_item_show(btn_save_tag, True, api)
             if dpg.does_item_exist(btn_reload_tag):
-                dpg.configure_item(btn_reload_tag, show=True)
-                # Reload button is only visible when file is out of date
-                dpg.configure_item(btn_reload_tag, show=is_outdated)
+                set_item_show(btn_reload_tag, is_outdated, api)
                 if is_outdated and dpg.does_item_exist("outdated_image_input_theme"):
                     dpg.bind_item_theme(btn_reload_tag, "outdated_image_input_theme")
                 elif dpg.does_item_exist("icon_button_theme"):
@@ -361,9 +404,9 @@ class LandmarkPluginUI(PluginTagMixin):
             if dpg.does_item_exist(lbl_file_tag):
                 dpg.configure_item(lbl_file_tag, show=False)
             if dpg.does_item_exist(btn_save_tag):
-                dpg.configure_item(btn_save_tag, show=False)
+                set_item_show(btn_save_tag, False, api)
             if dpg.does_item_exist(btn_reload_tag):
-                dpg.configure_item(btn_reload_tag, show=False)
+                set_item_show(btn_reload_tag, False, api)
 
         # Rebuild key to avoid unneeded redraws if nothing changed
         lm_tuples = tuple(
@@ -377,8 +420,7 @@ class LandmarkPluginUI(PluginTagMixin):
             )
             for lm_id, lm in landmarks.items()
         )
-        state_key = (vs_id, filter_text, file_path, lm_tuples)
-        state_key = (vs_id, filter_text, file_path, is_outdated, lm_tuples)
+        state_key = (vs_id, filter_text, invert, sort_order, file_path, is_outdated, lm_tuples)
 
         if state_key == self._last_state_key:
             return
@@ -387,26 +429,20 @@ class LandmarkPluginUI(PluginTagMixin):
         # Re-render table rows
         dpg.delete_item(table_id, children_only=True, slot=1)
 
-        total_count = len(landmarks)
-        filtered_count = 0
+        set_filter_count(count_id, len(listed), len(landmarks))
 
         # Update batch toolbar icon labels based on current states
         btn_vis_tag = self._t("lm_batch_toggle_visible")
         if dpg.does_item_exist(btn_vis_tag):
-            any_visible = any(lm.visible for lm in landmarks.values())
+            any_visible = any(lm.visible for lm in listed.values())
             dpg.set_item_label(btn_vis_tag, "\uf06e" if any_visible else "\uf070")
 
         btn_names_tag = self._t("lm_batch_toggle_names")
         if dpg.does_item_exist(btn_names_tag):
-            any_names = any(lm.show_name for lm in landmarks.values())
+            any_names = any(lm.show_name for lm in listed.values())
             dpg.set_item_label(btn_names_tag, "\uf02b" if any_names else "\uf02c")
 
-        for lm_id, lm in landmarks.items():
-            if filter_text and filter_text not in lm.name.lower():
-                continue
-
-            filtered_count += 1
-
+        for lm_id, lm in listed.items():
             with dpg.table_row(parent=table_id):
                 # 1. Color Picker
                 dpg.add_color_edit(
@@ -449,9 +485,12 @@ class LandmarkPluginUI(PluginTagMixin):
                     user_data=lm_id,
                     callback=self.on_landmark_toggle_visible,
                 )
-                self._bind_icon_font(btn_eye)
-                build_beginner_tooltip(
-                    btn_eye, "Show" if not lm.visible else "Hide", api
+                self._style_icon_button(btn_eye)
+                build_tooltip(
+                    btn_eye,
+                    "Show" if not lm.visible else "Hide",
+                    api,
+                    always_on=True,
                 )
 
                 # 4. Show/Hide Name Label Toggle
@@ -462,31 +501,40 @@ class LandmarkPluginUI(PluginTagMixin):
                     user_data=lm_id,
                     callback=self.on_landmark_toggle_show_name,
                 )
-                self._bind_icon_font(btn_tag)
-                build_beginner_tooltip(
-                    btn_tag, "Hide name" if lm.show_name else "Show name", api
+                self._style_icon_button(btn_tag)
+                build_tooltip(
+                    btn_tag,
+                    "Hide name" if lm.show_name else "Show name",
+                    api,
+                    always_on=True,
                 )
 
                 # 5. Snap to Grid Button
                 btn_snap = dpg.add_button(
-                    label="\uf076",
+                    label="\uf076", width=20,
                     user_data=lm_id,
                     callback=lambda s, a, u: self._c.snap_landmark_to_grid(u),
                 )
-                self._bind_icon_font(btn_snap)
-                build_beginner_tooltip(
-                    btn_snap, "Snap landmark to nearest voxel grid center", api
+                self._style_icon_button(btn_snap)
+                build_tooltip(
+                    btn_snap,
+                    "Snap landmark to nearest voxel grid center",
+                    api,
+                    always_on=True,
                 )
 
                 # 6. Goto Crosshair Button
                 btn_goto = dpg.add_button(
-                    label="\uf05b",
+                    label="\uf05b", width=20,
                     user_data=lm_id,
                     callback=lambda s, a, u: self._c.center_on_landmark(u),
                 )
-                self._bind_icon_font(btn_goto)
-                build_beginner_tooltip(
-                    btn_goto, "Jump crosshair to landmark position", api
+                self._style_icon_button(btn_goto)
+                build_tooltip(
+                    btn_goto,
+                    "Jump crosshair to landmark position",
+                    api,
+                    always_on=True,
                 )
 
                 # 7. Delete Button (Red cross)
@@ -498,11 +546,3 @@ class LandmarkPluginUI(PluginTagMixin):
                 )
                 build_beginner_tooltip(btn_del, "Delete landmark", api)
 
-        # Update counter footer text
-        if dpg.does_item_exist(footer_id):
-            if filter_text:
-                dpg.set_value(
-                    footer_id, f"Landmarks: {total_count} (Filtered: {filtered_count})"
-                )
-            else:
-                dpg.set_value(footer_id, f"Landmarks: {total_count}")

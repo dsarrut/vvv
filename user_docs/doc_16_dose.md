@@ -111,7 +111,7 @@ In typical radiotherapy workflows (e.g. using data from the `data/head_neck` sam
    * Check **Lines** for contour isolines, and **Shading** for isodose colorwash.
    * Click **⌖** to immediately jump the crosshair to the location of maximum dose ($D_{\max}$).
 5. **Open Dose-Volume Histogram (DVH)**:
-   * Click **DVH Window...** to compute cumulative dose-volume curves and clinical indices across all segmented structures.
+   * Click **Show DVH** to compute cumulative dose-volume curves and clinical indices across all segmented structures.
 6. **Inspect Metadata**:
    * In the **Active Viewer** panel, use the **⇄** toggle button next to the image name to toggle between viewing CT metadata and RTDOSE metadata.
 
@@ -123,7 +123,7 @@ The **DVH Window** provides clinical radiotherapy dose-volume histogram analysis
 
 ![Dose-Volume Histogram Window](images/doc_16_dvh_window.png)
 
-Clicking **DVH Window...** in the Dose sidebar opens the dedicated analysis window:
+Clicking **Show DVH** in the Dose sidebar opens the dedicated analysis window (the button turns blue and reads **Hide DVH**; click it again to close the window):
 
 ### Graph & Curve Options
 
@@ -133,13 +133,13 @@ Clicking **DVH Window...** in the Dose sidebar opens the dedicated analysis wind
 * **Volume Axis**: Toggle between relative percentage (**Volume: %**) and absolute physical volume in cubic centimeters (**Volume: $\text{cm}^3$**).
 * **Dose Axis**: Toggle between absolute physical dose in Gray (**Dose: Gy**) and relative percentage of prescription reference dose (**Dose: %**).
 * **Interactive Legend**: Toggle the plot legend on or off, and position it across any corner (**Top-Right**, **Top-Left**, **Bottom-Right**, **Bottom-Left**) or outside the plotting area (**Outside**).
-* **Fit View**: Instantly rescales and pans the graph axes to fit all active curves comfortably.
+* **Fit** (expand icon): Instantly rescales and pans the graph axes to fit all active curves comfortably.
 
 ### Structure List & Interactive Controls
 
 * **Visibility**: Toggle individual organ curves on and off via checkboxes. Use **All** and **None** for batch selection.
-* **Filter Bar**: Fast real-time substring search to find structures in complex RTSTRUCT sets (e.g. typing `ptv` or `cord`).
-* **Invert Filter (`!`)**: Inverts the match condition to inspect all non-matching structures.
+* **Filter Bar**: Fast real-time substring search to find structures in complex RTSTRUCT sets (e.g. typing `ptv` or `cord`); the sort button orders the list (A→Z, Z→A, off) and the count shows listed / total. **All**, **None**, the metrics table and the CSV export follow the filter.
+* **Invert Filter (`!`)**: Inverts the match condition to inspect all non-matching structures. **X** clears the text and the invert.
 * **Two-Way Color Synchronization**:
   * Curves, legend markers, list color swatches, and metrics table labels automatically reflect the structure colors configured in the ROI plugin.
   * Clicking any color swatch inside the DVH checklist opens an interactive color picker: updating the color synchronizes the DVH curve, viewports, and ROI plugin in real time.
@@ -160,7 +160,7 @@ The table below the graph reports standard radiation oncology indices for all vi
 | **D2 (Gy)** | Dose received by $2\%$ of the volume (near-maximum / hot spot dose metric). |
 
 * **Interactive Column Sorting**: Click any column header (**Structure**, **Vol**, **Min**, **Mean**, **Max**, **D98**, **D50**, **D2**) to sort rows in ascending or descending order. Tri-state sorting cycles through Ascending $\rightarrow$ Descending $\rightarrow$ Original order.
-* **CSV Export**: Click **Export CSV...** to save both the summary metrics table and the full high-resolution dose-volume curves to a standard CSV spreadsheet file. Active structure filters and column sort orders are preserved in the export.
+* **CSV Export**: Click the export icon to save both the summary metrics table and the full high-resolution dose-volume curves to a standard CSV spreadsheet file. Active structure filters and column sort orders are preserved in the export.
 
 ---
 

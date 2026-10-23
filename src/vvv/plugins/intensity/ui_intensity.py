@@ -1,8 +1,21 @@
 import dearpygui.dearpygui as dpg
 from vvv.config import WL_PRESETS, COLORMAPS
-from vvv.ui.ui_components import build_stepped_slider, build_section_title, build_help_button, build_beginner_tooltip
+from vvv.ui.ui_components import (
+    build_stepped_slider,
+    build_section_title,
+    build_help_button,
+    build_beginner_tooltip,
+    build_tooltip,
+    build_icon_button,
+    label_row,
+    FIELD_RIGHT_MARGIN,
+    LABEL_COL_W,
+    SMALL_BTN_W,
+)
 from .control_intensity import IntensityController
 from vvv.plugins.plugin_api import PluginTagMixin
+
+HIST_BTN_W = SMALL_BTN_W  # Ctr / Bar-Line / Lin-Log: fits the longer labels ("Line")
 
 
 class IntensityUI(PluginTagMixin):
@@ -24,44 +37,45 @@ class IntensityUI(PluginTagMixin):
                 color=cfg_c["text_active"],
             )
 
-            with dpg.group(horizontal=True):
-                dpg.add_text("Preset: ")
+            with label_row("Preset", LABEL_COL_W):
                 dpg.add_combo(
                     list(WL_PRESETS.keys()) + ["Custom"],
                     default_value="Custom",
                     tag=self._t("combo_wl_presets"),
-                    width=-1,
+                    width=-FIELD_RIGHT_MARGIN,
                     callback=self._c.on_preset_changed,
                 )
 
             build_stepped_slider(
-                "Window: ",
+                "Window",
                 self._t("drag_ww"),
                 callback=self._c.on_ww_changed,
                 step_callback=self._c.on_step_button_clicked,
                 min_val=1e-5,
                 help_text="Window / Level controls image contrast and brightness.\nWindow: The range of visible values.\nLevel: The center point of the visible range.",
                 gui=api,
+                label_col=LABEL_COL_W,
             )
             build_stepped_slider(
-                "Level:  ",
+                "Level",
                 self._t("drag_wl"),
                 callback=self._c.on_wl_changed,
                 step_callback=self._c.on_step_button_clicked,
+                gui=api,
+                label_col=LABEL_COL_W,
             )
 
-            with dpg.group(horizontal=True):
-                dpg.add_text("Map:    ")
+            with label_row("Map", LABEL_COL_W):
                 dpg.add_combo(
                     list(COLORMAPS.keys()),
                     default_value="Grayscale",
                     tag=self._t("combo_colormap"),
-                    width=-1,
+                    width=-FIELD_RIGHT_MARGIN,
                     callback=self._c.on_colormap_changed,
                 )
 
             build_stepped_slider(
-                "Min Thr:",
+                "Min Thr",
                 self._t("drag_min_threshold"),
                 callback=self._c.on_threshold_changed,
                 step_callback=self._c.on_step_button_clicked,
@@ -70,6 +84,7 @@ class IntensityUI(PluginTagMixin):
                 check_cb=self._c.on_threshold_toggle,
                 help_text="Pixels below this threshold value are rendered completely transparent.",
                 gui=api,
+                label_col=LABEL_COL_W,
             )
 
             dpg.add_spacer(height=5)
@@ -81,7 +96,7 @@ class IntensityUI(PluginTagMixin):
             with dpg.plot(
                 tag=self._t("wl_hist_plot"),
                 height=120,
-                width=-1,
+                width=-FIELD_RIGHT_MARGIN,
                 no_title=True,
                 no_mouse_pos=True,
                 no_box_select=True,
@@ -120,27 +135,27 @@ class IntensityUI(PluginTagMixin):
             dpg.add_spacer(height=2)
             with dpg.group(horizontal=True):
                 btn_ctr = dpg.add_button(
-                    label="Ctr", width=36, tag=self._t("btn_hist_center"),
+                    label="Ctr", width=HIST_BTN_W, tag=self._t("btn_hist_center"),
                     callback=self._c.on_hist_center,
                 )
                 build_beginner_tooltip(btn_ctr, "Center histogram view around current W/L window", api)
                 btn_bar = dpg.add_button(
-                    label="Bar", width=34, tag=self._t("btn_hist_bar"),
+                    label="Bar", width=HIST_BTN_W, tag=self._t("btn_hist_bar"),
                     callback=self._c.on_hist_bar_toggle,
                 )
-                build_beginner_tooltip(btn_bar, "Toggle histogram bar rendering", api)
+                build_beginner_tooltip(btn_bar, "Histogram style (Bar / Line): click to switch", api)
                 btn_lin = dpg.add_button(
-                    label="Lin", width=30, tag=self._t("btn_hist_log"),
+                    label="Log", width=HIST_BTN_W, tag=self._t("btn_hist_log"),
                     callback=self._c.on_hist_log_toggle,
                 )
-                build_beginner_tooltip(btn_lin, "Toggle Linear / Logarithmic frequency scale", api)
-                btn_popup = dpg.add_button(
-                    label="", tag=self._t("btn_hist_popup"),
+                build_beginner_tooltip(btn_lin, "Frequency scale (Lin / Log): click to switch", api)
+                build_icon_button(
+                    icon="\uf35d",
+                    tag=self._t("btn_hist_popup"),
                     callback=self._c.on_hist_popup,
+                    tooltip="Open standalone floating histogram window",
+                    gui=api,
                 )
-                if dpg.does_item_exist("icon_font_tag"):
-                    dpg.bind_item_font(btn_popup, "icon_font_tag")
-                build_beginner_tooltip(btn_popup, "Open standalone floating histogram window", api)
                 dpg.add_text(
                     "computing full histogram",
                     tag=self._t("txt_computing_full_hist"),
@@ -152,36 +167,27 @@ class IntensityUI(PluginTagMixin):
                     "Drag the blue lines to set the Window (lower / upper bounds).\n"
                     "Drag the orange line to move the Level (center brightness).\n\n"
                     "Ctr: Center the histogram view on the current Window/Level.\n"
-                    "Auto: Keep the view centered automatically as you drag.\n"
-                    "Bar / Line: Toggle bar vs. line histogram style.\n"
-                    "Lin / Log: Toggle linear vs. logarithmic Y axis.\n"
+                    "Bar / Line: Current histogram style; click to switch.\n"
+                    "Lin / Log: Current Y scale (linear or log); click to switch.\n"
                     ": Open in a larger floating window.",
                     api,
                 )
-            with dpg.group(horizontal=True):
-                c_lbl = dpg.add_text("X center:", color=cfg_c["text_dim"])
-                build_beginner_tooltip(c_lbl, "C — X-axis center of the histogram view.", api)
-                dpg.add_drag_float(
-                    tag=self._t("drag_hist_xcenter"), default_value=0.0, speed=1.0,
-                    min_value=-1e10, max_value=1e10, format="%.5g", width=80,
-                    callback=self._c.on_hist_xcenter_drag,
-                )
-                w_lbl = dpg.add_text("X width:", color=cfg_c["text_dim"])
-                build_beginner_tooltip(w_lbl, "W — Width (zoom) of the histogram X axis.", api)
-                dpg.add_drag_float(
-                    tag=self._t("drag_hist_xwidth"), default_value=1.0, speed=1.0,
-                    min_value=1e-5, max_value=1e10, format="%.5g", width=80,
-                    callback=self._c.on_hist_xwidth_drag,
-                )
-            
-            with dpg.group(horizontal=True):
-                y_lbl = dpg.add_text("Y axis:", color=cfg_c["text_dim"])
-                build_beginner_tooltip(y_lbl, "Y — Maximum visible height of the histogram Y axis.", api)
-                dpg.add_drag_float(
-                    tag=self._t("drag_hist_ymax"), default_value=1.0, speed=0.01,
-                    min_value=1e-5, max_value=1e10, format="%.5g", width=80,
-                    callback=self._c.on_hist_ymax_drag,
-                )
+            # Histogram view: one row per value, aligned with the rows above
+            for label, suffix, default, speed, vmin, cb, tip in (
+                ("X center", "xcenter", 0.0, 1.0, -1e10, self._c.on_hist_xcenter_drag,
+                 "X-axis center of the histogram view."),
+                ("X width", "xwidth", 1.0, 1.0, 1e-5, self._c.on_hist_xwidth_drag,
+                 "Width (zoom) of the histogram X axis."),
+                ("Y max", "ymax", 1.0, 0.01, 1e-5, self._c.on_hist_ymax_drag,
+                 "Maximum visible height of the histogram Y axis."),
+            ):
+                with label_row(label, LABEL_COL_W, color=cfg_c["text_dim"]):
+                    dpg.add_drag_float(
+                        tag=self._t(f"drag_hist_{suffix}"), default_value=default, speed=speed,
+                        min_value=vmin, max_value=1e10, format="%.5g",
+                        width=-FIELD_RIGHT_MARGIN, callback=cb,
+                    )
+                build_beginner_tooltip(self._t(f"drag_hist_{suffix}"), tip, api)
 
             shade_theme = self._t("wl_shade_theme")
             if not dpg.does_item_exist(shade_theme):
@@ -292,13 +298,13 @@ class IntensityUI(PluginTagMixin):
             # Control buttons
             dpg.add_spacer(height=6)
             with dpg.group(horizontal=True):
-                dpg.add_button(label="Ctr", width=42, callback=self._c.on_hist_center, user_data=image_id)
-                dpg.add_button(label="Bar", width=38, tag=self._t(f"btn_hist_popup_bar_{image_id}"), callback=self._c.on_hist_bar_toggle, user_data=image_id)
-                dpg.add_button(label="Lin", width=34, tag=self._t(f"btn_hist_popup_log_{image_id}"), callback=self._c.on_hist_log_toggle, user_data=image_id)
+                dpg.add_button(label="Ctr", width=HIST_BTN_W, callback=self._c.on_hist_center, user_data=image_id)
+                dpg.add_button(label="Bar", width=HIST_BTN_W, tag=self._t(f"btn_hist_popup_bar_{image_id}"), callback=self._c.on_hist_bar_toggle, user_data=image_id)
+                dpg.add_button(label="Log", width=HIST_BTN_W, tag=self._t(f"btn_hist_popup_log_{image_id}"), callback=self._c.on_hist_log_toggle, user_data=image_id)
                 dpg.add_drag_int(
                     tag=self._t(f"drag_hist_popup_bins_{image_id}"), default_value=256, speed=2.0,
                     min_value=32, max_value=1024, format="%d bins",
-                    width=80, show=use_bars,
+                    width=110, show=use_bars,
                     callback=self._c.on_hist_bins_drag,
                     user_data=image_id,
                 )
@@ -313,9 +319,8 @@ class IntensityUI(PluginTagMixin):
                     "Drag the blue lines to set the Window (lower / upper bounds).\n"
                     "Drag the orange line to move the Level (center brightness).\n\n"
                     "Ctr: Center the view on the current Window/Level.\n"
-                    "Auto: Keep the view centered automatically as you drag.\n"
-                    "Bar / Line: Toggle bar vs. line histogram style.\n"
-                    "Lin / Log: Toggle linear vs. logarithmic Y axis.\n"
+                    "Bar / Line: Current histogram style; click to switch.\n"
+                    "Lin / Log: Current Y scale (linear or log); click to switch.\n"
                     "Bins: Number of histogram bins (bar mode only).",
                     api,
                 )
@@ -337,7 +342,7 @@ class IntensityUI(PluginTagMixin):
                     callback=self._c.on_hist_xwidth_drag,
                     user_data=image_id,
                 )
-                y_lbl = dpg.add_text("Y axis:")
+                y_lbl = dpg.add_text("Y max:")
                 build_beginner_tooltip(y_lbl, "Y — Maximum visible height of the histogram Y axis.", api)
                 dpg.add_drag_float(
                     tag=self._t(f"drag_hist_popup_ymax_{image_id}"), default_value=1.0, speed=0.01,

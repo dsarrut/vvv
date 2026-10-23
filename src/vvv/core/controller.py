@@ -2,6 +2,7 @@ import os
 import json
 import math
 import shlex
+import re
 import threading
 import numpy as np
 import collections
@@ -65,6 +66,9 @@ class Controller:
         self.view_states = {}
         self.viewers = {}
         self._state_lock = threading.RLock()
+        # Number shown before each image name (see image_number)
+        self._image_numbers: dict[str, int] = {}
+        self._next_image_number = 1
 
         self.layout: dict[str, str | None] = {
             "V1": None,
@@ -306,26 +310,49 @@ class Controller:
         cz = (vol.shape3d[0] - 1) / 2.0
         return vol.voxel_coord_to_physic_coord(np.array([cx, cy, cz]))
 
-    def get_image_display_name(self, vs_id):
-        """Returns a formatted display name (e.g., '(1) name.mhd') and an is_outdated boolean."""
-        try:
-            idx = list(self.view_states.keys()).index(vs_id) + 1
-        except ValueError:
-            idx = "?"
+    def image_number(self, vs_id):
+        """Number shown before an image name: given in load order, kept while
+        the image is open (closing one does not renumber the others), never
+        reused; it restarts at 1 once every image is closed."""
+        with self._state_lock:
+            numbers = self._image_numbers
+            for k in [k for k in numbers if k not in self.view_states]:
+                del numbers[k]
+            if not numbers:
+                self._next_image_number = 1
+            for vid in self.view_states:
+                if vid not in numbers:
+                    numbers[vid] = self._next_image_number
+                    self._next_image_number += 1
+            return numbers.get(vs_id)
 
+    def renumber_images(self, vs_ids):
+        """Give these (just loaded) images consecutive numbers in this order,
+        after the numbers of the other open images: a workspace loads its
+        images in parallel, then lists them in the workspace order."""
+        with self._state_lock:
+            for vid in vs_ids:
+                self._image_numbers.pop(vid, None)
+            self._next_image_number = max(self._image_numbers.values(), default=0) + 1
+            for vid in vs_ids:
+                if vid in self.view_states:
+                    self._image_numbers[vid] = self._next_image_number
+                    self._next_image_number += 1
+
+    def get_image_name(self, vs_id):
+        """The image name, without the number and the outdated mark."""
         vol = self.volumes.get(vs_id)
         if not vol:
-            return f"({idx}) Unknown", False
+            return "Unknown"
+        # Names saved by older versions may still carry a "(n) " prefix
+        return re.sub(r"^\(\d+\)\s*", "", vol.name)
 
-        is_outdated = getattr(vol, "_is_outdated", False)
-        base_name = vol.name
-
-        # Clean any existing leading (number) prefix for dynamic index display
-        import re
-
-        clean_name = re.sub(r"^\(\d+\)\s*", "", base_name)
-
-        name_str = f"({idx}) {clean_name}"
+    def get_image_display_name(self, vs_id):
+        """Returns a formatted display name (e.g., '(1) name.mhd') and an is_outdated boolean."""
+        number = self.image_number(vs_id) or "?"
+        vol = self.volumes.get(vs_id)
+        is_outdated = bool(getattr(vol, "_is_outdated", False)) if vol else False
+        name_str = f"({number}) {self.get_image_name(vs_id)}"
         if is_outdated:
             name_str += " *"
         return name_str, is_outdated
@@ -667,6 +694,10 @@ class Controller:
 
         if keys[0] == "layout":
             self.ui_needs_layout_rebuild = True
+
+        if keys[0] == "interaction" and any("tooltip_delay" in str(k) for k in keys):
+            if hasattr(self, "gui") and self.gui and hasattr(self.gui, "update_tooltip_delays"):
+                self.gui.update_tooltip_delays()
 
         self.ui_needs_refresh = True
         self._flag_all_viewers_dirty()

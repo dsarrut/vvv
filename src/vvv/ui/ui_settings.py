@@ -3,6 +3,7 @@ import json
 from typing import Any
 import dearpygui.dearpygui as dpg
 from vvv.core.settings_manager import DEFAULT_SETTINGS
+from vvv.ui.ui_components import build_dialog_footer, build_icon_button
 
 
 class SettingsWindow:
@@ -33,9 +34,12 @@ class SettingsWindow:
 
             # Header Path
             with dpg.group(horizontal=True):
-                btn = dpg.add_button(label="\uf0c5", callback=self.copy_path)
-                if dpg.does_item_exist("icon_font_tag"):
-                    dpg.bind_item_font(btn, "icon_font_tag")
+                build_icon_button(
+                    icon="\uf0c5",
+                    callback=self.copy_path,
+                    tooltip="Copy the settings file path",
+                    gui=self.controller.gui,
+                )
                 dpg.add_input_text(
                     tag="input_settings_config_path",
                     default_value=str(self.controller.settings.config_path),
@@ -62,14 +66,14 @@ class SettingsWindow:
             # Footer
             dpg.add_separator()
             dpg.add_spacer(height=5)
-            with dpg.group(horizontal=True):
-                dpg.add_button(label="Save", width=80, callback=self.on_save)
-                dpg.add_button(label="Reload", width=80, callback=self.on_reload)
-                dpg.add_button(
-                    label="Reset Defaults", width=120, callback=self.on_reset
-                )
-                dpg.add_spacer(width=10)
-                dpg.add_text("", tag="settings_status_text")
+            dpg.add_text("", tag="settings_status_text")
+            build_dialog_footer(
+                [
+                    ("Reset Defaults", self.on_reset),
+                    ("Reload", self.on_reload),
+                    ("Save", self.on_save),
+                ]
+            )
 
         self.build_tree()
 

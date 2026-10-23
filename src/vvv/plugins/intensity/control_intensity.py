@@ -10,6 +10,16 @@ if TYPE_CHECKING:
     from .ui_intensity import IntensityUI
 
 
+
+def set_hist_toggle_labels(bar_tag, log_tag, hs):
+    """The histogram toggle buttons show the current mode (a click switches it)."""
+    for tag, label in (
+        (bar_tag, "Bar" if hs.use_bars else "Line"),
+        (log_tag, "Log" if hs.use_log else "Lin"),
+    ):
+        if dpg.does_item_exist(tag):
+            dpg.configure_item(tag, label=label)
+
 class HistogramState:
     """Per-image histogram state — view preferences and computed data — owned by the intensity plugin."""
 
@@ -171,9 +181,10 @@ class IntensityController(PluginTagMixin):
                 dpg.set_value(drag_thr_tag, thr)
             thr_enabled = has_image and not is_rgb and has_thr
             dpg.configure_item(drag_thr_tag, enabled=thr_enabled)
+            # + / - stay usable while the threshold is off: a click turns it on
             for btn in (f"btn_{drag_thr_tag}_minus", f"btn_{drag_thr_tag}_plus"):
                 if dpg.does_item_exist(btn):
-                    dpg.configure_item(btn, enabled=thr_enabled)
+                    dpg.configure_item(btn, enabled=(has_image and not is_rgb))
 
         minmax_tag = self._t("minmax")
         if dpg.does_item_exist(minmax_tag):
@@ -430,25 +441,19 @@ class IntensityController(PluginTagMixin):
 
             # Update buttons/toggles
             if is_active:
-                for tag_suffix, t_label, f_label, val in (
-                    ("btn_hist_bar", "Line", "Bar", hs.use_bars),
-                    ("btn_hist_log", "Lin", "Log", hs.use_log),
-                ):
-                    tag = self._t(tag_suffix)
-                    if dpg.does_item_exist(tag):
-                        dpg.configure_item(tag, label=t_label if val else f_label)
+                set_hist_toggle_labels(
+                    self._t("btn_hist_bar"), self._t("btn_hist_log"), hs
+                )
                 txt_panel = self._t("txt_computing_full_hist")
                 if dpg.does_item_exist(txt_panel):
                     dpg.configure_item(txt_panel, show=hs.computing_full_hist)
 
             if popup_visible:
-                for tag_suffix, t_label, f_label, val in (
-                    (f"btn_hist_popup_bar_{img_id}", "Line", "Bar", hs.use_bars),
-                    (f"btn_hist_popup_log_{img_id}", "Lin", "Log", hs.use_log),
-                ):
-                    tag = self._t(tag_suffix)
-                    if dpg.does_item_exist(tag):
-                        dpg.configure_item(tag, label=t_label if val else f_label)
+                set_hist_toggle_labels(
+                    self._t(f"btn_hist_popup_bar_{img_id}"),
+                    self._t(f"btn_hist_popup_log_{img_id}"),
+                    hs,
+                )
                 txt_popup = self._t(f"txt_popup_computing_full_hist_{img_id}")
                 if dpg.does_item_exist(txt_popup):
                     dpg.configure_item(txt_popup, show=hs.computing_full_hist)

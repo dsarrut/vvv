@@ -1,4 +1,5 @@
 import dearpygui.dearpygui as dpg
+from vvv.ui.ui_components import set_controls_enabled
 from vvv.plugins.plugin_api import PluginAPI, PluginTagMixin
 
 
@@ -55,23 +56,26 @@ class DvfController(PluginTagMixin):
         radio_mode = self._t("radio_mode")
         warning_tag = self._t("warning")
         vector_slider_tags = ["thickness", "min_arrow", "min_draw", "color_max_mag", "sampling", "scale", "precision"]
-        if dpg.does_item_exist(radio_mode):
-            dpg.configure_item(radio_mode, enabled=is_dvf)
         if dpg.does_item_exist(warning_tag):
             dpg.configure_item(warning_tag, show=not is_dvf)
+        # Controls always shown, greyed out without a DVF (shows what exists)
+        set_controls_enabled(self._t("controls"), is_dvf)
 
         if not is_dvf:
-            vector_settings = self._t("vector_settings")
-            if dpg.does_item_exist(vector_settings):
-                dpg.configure_item(vector_settings, show=True)
-            for name in vector_slider_tags:
-                for tag in [self._t(name), f"btn_{self._t(name)}_minus", f"btn_{self._t(name)}_plus"]:
-                    if dpg.does_item_exist(tag):
-                        dpg.configure_item(tag, enabled=False)
-            for name in ["color_min", "color_max"]:
-                tag = self._t(name)
+            vol = viewer.volume if viewer else None
+            if dpg.does_item_exist(self._t("warning_current")):
+                if vol is None:
+                    current = "No image selected"
+                else:
+                    n = getattr(vol, "num_components", 1)
+                    kind = "RGB image" if getattr(vol, "is_rgb", False) else "scalar image"
+                    current = f"{kind} ({n} component{'s' if n != 1 else ''} per voxel)"
+                dpg.set_value(self._t("warning_current"), f"Current: {current}")
+            for tag in (self._t("display_mode_group"), self._t("vector_settings")):
                 if dpg.does_item_exist(tag):
-                    dpg.configure_item(tag, enabled=False)
+                    dpg.configure_item(tag, show=True)
+            if dpg.does_item_exist(radio_mode):
+                dpg.configure_item(radio_mode, show=True)
             return
 
         dvf_state = target_vs.dvf

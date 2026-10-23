@@ -1,10 +1,135 @@
+from contextlib import ExitStack, contextmanager
+
 import dearpygui.dearpygui as dpg
 
+# Standard UI toolbar icon glyphs
+ICON_SAVE = "\uf0c7"  # Floppy disk
+ICON_SAVE_AS = "\ue001"  # Floppy disk with down arrow badge
+ICON_ADD = "\uf067"  # Plus: add an item (landmark, profile, isodose level)
+ICON_EXPORT = "\uf56e"  # File export: write data (stats, curves) to a file
+ICON_FIT = "\uf065"  # Expand: fit a plot to its data
+ICON_REFRESH = "\uf021"  # Arrows rotate: compute again (not a reload from disk)
+ICON_SNAP = "\uf076"  # Magnet: snap to the image / crosshair
 
-def build_section_title(label, color):
+# Short text buttons: toggles showing their current mode (Lin / Log,
+# Bar / Line, Ctr) and All / None selections
+SMALL_BTN_W = 40
+
+
+def _ensure_separator_theme():
+    """Ensures clean_separator_theme exists, creating it if register_dynamic_themes has not been called."""
+    if not dpg.does_item_exist("clean_separator_theme"):
+        with dpg.theme(tag="clean_separator_theme"):
+            with dpg.theme_component(dpg.mvTable):
+                dpg.add_theme_style(dpg.mvStyleVar_CellPadding, 0, 0)
+                dpg.add_theme_style(dpg.mvStyleVar_ItemSpacing, 0, 0)
+
+
+def build_horizontal_separator(width=-8, space_below=4, parent=None):
+    """A reusable UI component for a clean horizontal separator with margins on both sides and below."""
+    _ensure_separator_theme()
+    kwargs = {
+        "header_row": False,
+        "policy": dpg.mvTable_SizingStretchProp,
+    }
+    if width is not None:
+        kwargs["width"] = width
+    if parent is not None:
+        kwargs["parent"] = parent
+
+    with dpg.table(**kwargs) as table:
+        dpg.bind_item_theme(table, "clean_separator_theme")
+        dpg.add_table_column()
+        with dpg.table_row():
+            dpg.add_separator()
+
+    if space_below and space_below > 0:
+        if parent is not None:
+            dpg.add_spacer(height=space_below, parent=parent)
+        else:
+            dpg.add_spacer(height=space_below)
+
+    return table
+
+
+def build_section_title(label, color, sep_width=-8, space_below=4):
     """A reusable UI component for a section title with a horizontal separator."""
     dpg.add_text(label, color=color)
-    dpg.add_separator()
+    return build_horizontal_separator(width=sep_width, space_below=space_below)
+
+
+CARET_OPEN, CARET_FOLDED = "\uf0d7", "\uf0da"
+
+
+def build_collapsible_title(label, color, arrow_tag, on_toggle, folded=False, sep_width=-8, space_below=4):
+    """A section title that folds its panel: a caret (icon text, so the row keeps
+    the height of a plain title) and the label, both clickable. The caller
+    resizes the panel in on_toggle; set_title_folded updates the caret."""
+    with dpg.group(horizontal=True):
+        arrow = dpg.add_text(CARET_FOLDED if folded else CARET_OPEN, tag=arrow_tag, color=color)
+        if dpg.does_item_exist("icon_font_tag"):
+            dpg.bind_item_font(arrow, "icon_font_tag")
+        title = dpg.add_text(label, color=color)
+    with dpg.item_handler_registry() as handlers:
+        dpg.add_item_clicked_handler(callback=lambda *_: on_toggle())
+    dpg.bind_item_handler_registry(arrow, handlers)
+    dpg.bind_item_handler_registry(title, handlers)
+    return build_horizontal_separator(width=sep_width, space_below=space_below)
+
+
+def set_title_folded(arrow_tag, folded):
+    if dpg.does_item_exist(arrow_tag):
+        dpg.set_value(arrow_tag, CARET_FOLDED if folded else CARET_OPEN)
+
+
+DIALOG_BTN_W = 100  # footer buttons: one width (wider only if the label needs it)
+
+
+def build_dialog_footer(buttons, keys_for=None):
+    """Dialog footer: buttons right-aligned, all DIALOG_BTN_W wide, in the
+    given order with the main action LAST (on the right): e.g.
+    [("Cancel", on_cancel), ("Save", on_save)].
+
+    keys_for: the dialog window tag; Enter then runs the last button and Esc
+    the first (Cancel / Close). The key handlers go away with the window."""
+    def width(label):
+        size = dpg.get_text_size(label) if dpg.is_dearpygui_running() else None
+        text_w = size[0] if size else 8 * len(label)
+        return max(DIALOG_BTN_W, int(text_w) + 24)
+
+    with dpg.table(
+        header_row=False,
+        borders_innerH=False,
+        borders_innerV=False,
+        borders_outerH=False,
+        borders_outerV=False,
+        width=-1,
+    ):
+        dpg.add_table_column(width_stretch=True)
+        for label, _ in buttons:
+            dpg.add_table_column(width_fixed=True, init_width_or_weight=width(label))
+        with dpg.table_row():
+            dpg.add_spacer(width=1)
+            for label, cb in buttons:
+                dpg.add_button(label=label, width=width(label), callback=lambda *_, cb=cb: cb())
+
+    if keys_for:
+        reg = f"{keys_for}_footer_keys"
+        if dpg.does_item_exist(reg):
+            dpg.delete_item(reg)
+
+        def on_key(cb):
+            def run(*_):
+                if not dpg.does_item_exist(keys_for) or not dpg.is_item_shown(keys_for):
+                    if dpg.does_item_exist(reg):
+                        dpg.delete_item(reg)  # the dialog is gone
+                    return
+                cb()
+            return run
+
+        with dpg.handler_registry(tag=reg):
+            dpg.add_key_press_handler(key=dpg.mvKey_Return, callback=on_key(buttons[-1][1]))
+            dpg.add_key_press_handler(key=dpg.mvKey_Escape, callback=on_key(buttons[0][1]))
 
 
 def build_help_button(text, gui):
@@ -24,22 +149,135 @@ def build_help_button(text, gui):
     return btn
 
 
-def build_delete_button(label="\uf00d", width=20, user_data=None, callback=None, tooltip="Delete", gui=None):
-    """Creates a standardized red icon close/delete button."""
+def build_icon_button(
+    icon=None,
+    label=None,
+    callback=None,
+    tooltip=None,
+    gui=None,
+    api=None,
+    width=20,
+    theme="icon_button_theme",
+    tag=None,
+    user_data=None,
+    enabled=True,
+    show=True,
+    **kwargs,
+):
+    """Creates a standardized icon button with optional always-on tooltip (U15.1, U21)."""
+    if icon is None and label is not None:
+        icon = label
+    if gui is None and api is not None:
+        gui = api
+    btn_kwargs = {"label": icon, "width": width, "enabled": enabled, "show": show}
+    if tag is not None:
+        btn_kwargs["tag"] = tag
+    if user_data is not None:
+        btn_kwargs["user_data"] = user_data
     if callback is not None:
-        btn = dpg.add_button(label=label, width=width, user_data=user_data, callback=callback)
-    else:
-        btn = dpg.add_button(label=label, width=width, user_data=user_data)
+        btn_kwargs["callback"] = callback
+    btn_kwargs.update(kwargs)
+
+    btn = dpg.add_button(**btn_kwargs)
     if dpg.does_item_exist("icon_font_tag"):
         dpg.bind_item_font(btn, "icon_font_tag")
-    if dpg.does_item_exist("delete_button_theme"):
-        dpg.bind_item_theme(btn, "delete_button_theme")
+    if theme and dpg.does_item_exist(theme):
+        dpg.bind_item_theme(btn, theme)
     if tooltip and gui:
-        build_beginner_tooltip(btn, tooltip, gui)
+        build_tooltip(btn, tooltip, gui, always_on=True)
     return btn
 
 
+def build_delete_button(
+    label="\uf00d",
+    icon=None,
+    width=20,
+    user_data=None,
+    callback=None,
+    tooltip="Delete",
+    gui=None,
+    api=None,
+    tag=None,
+    show=True,
+    enabled=True,
+    **kwargs,
+):
+    """Creates a standardized red icon close/delete button."""
+    if icon is not None:
+        label = icon
+    if gui is None and api is not None:
+        gui = api
+    return build_icon_button(
+        icon=label,
+        width=width,
+        user_data=user_data,
+        callback=callback,
+        tooltip=tooltip,
+        gui=gui,
+        theme="delete_button_theme",
+        tag=tag,
+        show=show,
+        enabled=enabled,
+        **kwargs,
+    )
+
+
 REGISTERED_INPUT_FILTER_TAGS = set()
+
+# Room kept right of the filter input (it fills the rest of the row): the two
+# 24 px buttons, the "M / N" count and the item spacing (6-8 px).
+_FILTER_BTN_W = 24
+_FILTER_COUNT_W = 56
+_FILTER_RESERVE_W = 2 * (_FILTER_BTN_W + 8) + _FILTER_COUNT_W + 8
+_FILTER_COUNT_DY = 2  # (frame height - small text height) / 2 - frame padding
+
+
+def name_matches(name, filter_text, invert=False):
+    """Name filter rule shared by all lists: case-insensitive substring of the
+    stripped filter text; invert keeps the non-matching names. An empty filter
+    keeps everything, inverted or not."""
+    text = (filter_text or "").strip().lower()
+    if not text:
+        return True
+    return (text in (name or "").lower()) != bool(invert)
+
+
+def set_filter_invert_state(btn_invert_tag, invert):
+    """Highlight the invert button while the inverted filter is on."""
+    if not dpg.does_item_exist(btn_invert_tag):
+        return
+    if invert and dpg.does_item_exist("active_nav_button_theme"):
+        dpg.bind_item_theme(btn_invert_tag, "active_nav_button_theme")
+    else:
+        dpg.bind_item_theme(btn_invert_tag, 0)
+
+
+# Name sort shared by the filtered lists: 0 = insertion order, 1 = A-Z, -1 = Z-A
+SORT_ICONS = {0: "\uf0dc", 1: "\uf15d", -1: "\uf15e"}
+
+
+def next_sort_order(order):
+    """Sort button cycle: off -> A-Z -> Z-A -> off."""
+    return {0: 1, 1: -1}.get(order, 0)
+
+
+def sort_by_name(items, order, name=lambda x: x.name):
+    """items sorted by case-insensitive name for order 1 / -1, unchanged for 0."""
+    if order not in (1, -1):
+        return list(items)
+    return sorted(items, key=lambda x: (name(x) or "").lower(), reverse=order == -1)
+
+
+def set_sort_button(btn_sort_tag, order):
+    """Show the current sort order on the sort button."""
+    if dpg.does_item_exist(btn_sort_tag):
+        dpg.configure_item(btn_sort_tag, label=SORT_ICONS.get(order, SORT_ICONS[0]))
+
+
+def set_filter_count(count_tag, shown, total):
+    """'M / N': items listed by the filter / all items."""
+    if dpg.does_item_exist(count_tag):
+        dpg.set_value(count_tag, f"{shown} / {total}")
 
 
 def build_name_filter_bar(
@@ -48,20 +286,34 @@ def build_name_filter_bar(
     btn_clear_tag,
     on_filter_changed,
     on_clear_clicked,
-    hint="Filter by name...",
-    width=180,
     api=None,
     btn_invert_tag=None,
     on_invert_clicked=None,
+    btn_sort_tag=None,
+    on_sort_clicked=None,
+    sort_tooltip="Sort alphabetically",
+    count_tag=None,
+    hint="Filter ...",
 ):
-    """Creates a standardized search/filter input field with a clear button (X) and optional invert button."""
+    """Name filter row shared by the ROI, landmark, profile and DVH lists: input
+    (fills the row), optional sort, invert (!), clear (X) and an item count (see
+    set_filter_count). Match names with name_matches."""
     if input_tag:
         REGISTERED_INPUT_FILTER_TAGS.add(input_tag)
+
+    btn_count = 1  # btn_clear
+    if btn_invert_tag and on_invert_clicked:
+        btn_count += 1
+    if btn_sort_tag and on_sort_clicked:
+        btn_count += 1
+
+    reserve_w = btn_count * (_FILTER_BTN_W + 8) + (_FILTER_COUNT_W + 8 if count_tag else 8)
+
     with dpg.group(horizontal=True, tag=group_tag):
         dpg.add_input_text(
             hint=hint,
             tag=input_tag,
-            width=width,
+            width=-reserve_w,
             callback=lambda s, a: on_filter_changed(a),
         )
         if api:
@@ -71,62 +323,92 @@ def build_name_filter_bar(
                 api,
             )
 
+        if btn_sort_tag and on_sort_clicked:
+            build_icon_button(
+                label=SORT_ICONS[0],
+                tag=btn_sort_tag,
+                width=_FILTER_BTN_W,
+                callback=lambda *_: on_sort_clicked(),
+                tooltip=sort_tooltip,
+                gui=api,
+            )
+
         if btn_invert_tag and on_invert_clicked:
             btn_invert = dpg.add_button(
                 label="!",
                 tag=btn_invert_tag,
-                width=24,
-                callback=lambda: on_invert_clicked(),
+                width=_FILTER_BTN_W,
+                callback=lambda *_: on_invert_clicked(),
             )
             if dpg.does_item_exist("icon_font_tag"):
                 dpg.bind_item_font(btn_invert, "icon_font_tag")
             if api:
-                build_beginner_tooltip(
+                build_tooltip(
                     btn_invert,
                     "Invert filter: when active, excludes items containing this text.",
                     api,
+                    always_on=True,
                 )
 
         btn_clear = dpg.add_button(
             label="X",
             tag=btn_clear_tag,
-            width=24,
-            callback=lambda: on_clear_clicked(),
+            width=_FILTER_BTN_W,
+            callback=lambda *_: on_clear_clicked(),
         )
         if api:
-            build_beginner_tooltip(
+            build_tooltip(
                 btn_clear,
-                "Clears the name filter.",
+                "Clears the name filter (and the invert).",
                 api,
+                always_on=True,
             )
+        if count_tag:
+            ui_cfg = getattr(api, "ui_cfg", None)
+            color = (
+                ui_cfg["colors"]["text_dim"]
+                if isinstance(ui_cfg, dict)
+                else (150, 150, 150)
+            )
+            # Small font: a spacer (no item spacing) centers it on the input row
+            with dpg.group() as count_group:
+                dpg.add_spacer(height=_FILTER_COUNT_DY)
+                count = dpg.add_text("", tag=count_tag, color=color)
+            if dpg.does_item_exist("small_font_tag"):
+                dpg.bind_item_font(count, "small_font_tag")
+            if not dpg.does_item_exist("filter_count_theme"):
+                with dpg.theme(tag="filter_count_theme"):
+                    with dpg.theme_component(dpg.mvAll):
+                        dpg.add_theme_style(dpg.mvStyleVar_ItemSpacing, 0, 0)
+            dpg.bind_item_theme(count_group, "filter_count_theme")
     return group_tag
 
 
-def build_color_picker_row(
+def build_batch_action_toolbar(
     tag_prefix,
     on_color_changed=None,
     on_reset_colors=None,
     on_toggle_visible=None,
-    on_show_clicked=None,
-    on_hide_clicked=None,
     on_toggle_names=None,
     on_snap_clicked=None,
-    show_contour=False,
-    on_contour_clicked=None,
-    show_above_overlay=False,
-    on_above_overlay_clicked=None,
     on_delete_clicked=None,
     gui=None,
     api=None,
 ):
-    """
-    Creates a standardized row of batch management buttons for list tables.
-    """
+    """Row of batch buttons acting on the listed items of a table (landmarks):
+    color, reset colors, show / hide, names, snap, delete (last). Only the
+    actions given a callback are built."""
     g_obj = gui or api
+    buttons = [
+        # (callback, icon, tag suffix, tooltip)
+        (on_reset_colors, "\uf043", "reset_colors", "Reset colors to default initial sequence"),
+        (on_toggle_visible, "\uf06e", "toggle_visible", "Toggle show/hide listed/filtered items"),
+        (on_toggle_names, "\uf02b", "toggle_names", "Toggle name labels for listed/filtered items"),
+        (on_snap_clicked, "\uf076", "snap", "Snap all items to nearest voxel grid center"),
+    ]
     with dpg.group(horizontal=True, tag=f"{tag_prefix}_batch_toolbar"):
-        # 1. Color Picker
         if on_color_changed:
-            col_picker = dpg.add_color_edit(
+            dpg.add_color_edit(
                 default_value=[255, 255, 255, 255],
                 no_inputs=True,
                 no_label=True,
@@ -136,143 +418,234 @@ def build_color_picker_row(
                 tag=f"{tag_prefix}_batch_color",
                 callback=lambda s, a: on_color_changed(a),
             )
-
-        # 2. Reset Colors
-        if on_reset_colors:
-            btn_reset_col = dpg.add_button(
-                label="\uf043",
-                width=20,
-                tag=f"{tag_prefix}_batch_reset_colors",
-                callback=lambda: on_reset_colors(),
-            )
-            if dpg.does_item_exist("icon_font_tag"):
-                dpg.bind_item_font(btn_reset_col, "icon_font_tag")
-            if g_obj:
-                build_beginner_tooltip(btn_reset_col, "Reset colors to default initial sequence", g_obj)
-
-        # 3. Toggle Visible (or Show/Hide)
-        if on_toggle_visible:
-            btn_toggle_vis = dpg.add_button(
-                label="\uf06e",
-                width=20,
-                tag=f"{tag_prefix}_batch_toggle_visible",
-                callback=lambda: on_toggle_visible(),
-            )
-            if dpg.does_item_exist("icon_font_tag"):
-                dpg.bind_item_font(btn_toggle_vis, "icon_font_tag")
-            if g_obj:
-                build_beginner_tooltip(btn_toggle_vis, "Toggle show/hide listed/filtered items", g_obj)
-        else:
-            # Legacy: separate show/hide buttons
-            if on_show_clicked:
-                btn_show = dpg.add_button(
-                    label="\uf06e",
-                    width=20,
-                    tag=f"{tag_prefix}_batch_show",
-                    callback=lambda: on_show_clicked(),
+        for cb, icon, suffix, tooltip in buttons:
+            if cb:
+                build_icon_button(
+                    icon=icon,
+                    tag=f"{tag_prefix}_batch_{suffix}",
+                    callback=lambda *_, cb=cb: cb(),
+                    tooltip=tooltip,
+                    gui=g_obj,
                 )
-                if dpg.does_item_exist("icon_font_tag"):
-                    dpg.bind_item_font(btn_show, "icon_font_tag")
-                if g_obj:
-                    build_beginner_tooltip(btn_show, "Show listed/filtered items", g_obj)
-
-            if on_hide_clicked:
-                btn_hide = dpg.add_button(
-                    label="\uf070",
-                    width=20,
-                    tag=f"{tag_prefix}_batch_hide",
-                    callback=lambda: on_hide_clicked(),
-                )
-                if dpg.does_item_exist("icon_font_tag"):
-                    dpg.bind_item_font(btn_hide, "icon_font_tag")
-                if g_obj:
-                    build_beginner_tooltip(btn_hide, "Hide listed/filtered items", g_obj)
-
-        # 4. Toggle Name Labels
-        if on_toggle_names:
-            btn_names = dpg.add_button(
-                label="\uf02b",
-                width=20,
-                tag=f"{tag_prefix}_batch_toggle_names",
-                callback=lambda: on_toggle_names(),
-            )
-            if dpg.does_item_exist("icon_font_tag"):
-                dpg.bind_item_font(btn_names, "icon_font_tag")
-            if g_obj:
-                build_beginner_tooltip(btn_names, "Toggle name labels for listed/filtered items", g_obj)
-
-        # 5. Snap All
-        if on_snap_clicked:
-            btn_snap = dpg.add_button(
-                label="\uf076",
-                width=20,
-                tag=f"{tag_prefix}_batch_snap",
-                callback=lambda: on_snap_clicked(),
-            )
-            if dpg.does_item_exist("icon_font_tag"):
-                dpg.bind_item_font(btn_snap, "icon_font_tag")
-            if g_obj:
-                build_beginner_tooltip(btn_snap, "Snap all items to nearest voxel grid center", g_obj)
-
-        # Contour & Overlay options
-        if show_contour and on_contour_clicked:
-            btn_contour = dpg.add_button(
-                label="\uf040",
-                width=20,
-                tag=f"{tag_prefix}_batch_contour",
-                callback=lambda: on_contour_clicked(),
-            )
-            if dpg.does_item_exist("icon_font_tag"):
-                dpg.bind_item_font(btn_contour, "icon_font_tag")
-            if g_obj:
-                build_beginner_tooltip(btn_contour, "Show as contour", g_obj)
-
-        if show_above_overlay and on_above_overlay_clicked:
-            btn_overlay = dpg.add_button(
-                label="\uf5fd",
-                width=20,
-                tag=f"{tag_prefix}_batch_overlay",
-                callback=lambda: on_above_overlay_clicked(),
-            )
-            if dpg.does_item_exist("icon_font_tag"):
-                dpg.bind_item_font(btn_overlay, "icon_font_tag")
-            if g_obj:
-                build_beginner_tooltip(btn_overlay, "Toggle on top of fusion overlay", g_obj)
-
-        # 6. Delete
         if on_delete_clicked:
             build_delete_button(
                 label="\uf00d",
                 width=20,
-                callback=lambda: on_delete_clicked(),
+                tag=f"{tag_prefix}_batch_delete",
+                callback=lambda *_: on_delete_clicked(),
                 tooltip="Delete listed/filtered items",
                 gui=g_obj,
             )
 
 
-build_batch_action_toolbar = build_color_picker_row
-
-
-def build_beginner_tooltip(parent, text, gui, text_tag=None):
-    """A reusable tooltip attached to an existing widget that only appears when Beginner Mode is active."""
+def get_tooltip_delay(gui, always_on=True):
+    """Returns the delay in seconds for tooltips based on beginner mode and settings."""
     target_gui = getattr(gui, "_gui", gui) if hasattr(gui, "_gui") else gui
     is_beg = getattr(target_gui, "is_beginner_mode", False)
+    controller = getattr(target_gui, "controller", None)
+    cfg = {}
+    if controller and hasattr(controller, "settings"):
+        cfg = controller.settings.data.get("interaction", {})
+    if is_beg:
+        return float(cfg.get("tooltip_delay_beginner", 0.1))
+    return float(cfg.get("tooltip_delay", 0.6)) if always_on else float(cfg.get("tooltip_delay_beginner", 0.1))
+
+
+def set_item_show(item, show, gui=None):
+    """Sets item visibility and synchronizes any attached tooltip visibility."""
+    if dpg.does_item_exist(item):
+        dpg.configure_item(item, show=show)
+    target_gui = getattr(gui, "_gui", gui) if hasattr(gui, "_gui") else gui
+    if target_gui and hasattr(target_gui, "tooltip_parent_map"):
+        for tt_tag, p in getattr(target_gui, "tooltip_parent_map", {}).items():
+            if p == item and dpg.does_item_exist(tt_tag):
+                is_beg = getattr(target_gui, "is_beginner_mode", False)
+                is_icon = tt_tag in getattr(target_gui, "icon_tooltip_tags", [])
+                tt_show = show if is_icon else (is_beg and show)
+                dpg.configure_item(tt_tag, show=tt_show)
+
+
+def build_tooltip(parent, text, gui, tag=None, text_tag=None, always_on=True):
+    """A reusable tooltip attached to an existing widget.
+
+    If always_on=True (icon buttons, toolbars):
+        Visible in both normal and beginner modes with an activation delay:
+        - tooltip_delay (default 0.6s) in normal mode
+        - tooltip_delay_beginner (default 0.1s) in beginner mode
+        Registered in gui.icon_tooltip_tags so toggling beginner mode updates delay.
+    If always_on=False (educational tooltips on text/sliders):
+        Visible only when Beginner Mode is active (show=is_beginner, delay=0.1s).
+        Registered in gui.beginner_tags so toggling beginner mode toggles visibility.
+    """
+    target_gui = getattr(gui, "_gui", gui) if hasattr(gui, "_gui") else gui
+    is_beg = getattr(target_gui, "is_beginner_mode", False)
+    delay = get_tooltip_delay(target_gui, always_on=always_on)
+    parent_shown = True
+    if dpg.does_item_exist(parent):
+        parent_shown = bool(dpg.get_item_configuration(parent).get("show", True))
+    show_initial = parent_shown if always_on else (is_beg and parent_shown)
+
+    tt_kwargs = {"parent": parent, "show": show_initial, "delay": delay}
+    if tag:
+        tt_kwargs["tag"] = tag
     try:
-        tag = dpg.add_tooltip(parent=parent, show=is_beg)
+        tt_tag = dpg.add_tooltip(**tt_kwargs)
     except (Exception, SystemError):
         return None
-    colors = getattr(target_gui, "ui_cfg", {}).get("colors", {}) if hasattr(target_gui, "ui_cfg") else {}
-    dim_col = colors.get("text_dim", [150, 150, 150]) if isinstance(colors, dict) else [150, 150, 150]
+
+    if not hasattr(target_gui, "tooltip_parent_map") or not isinstance(
+        target_gui.tooltip_parent_map, dict
+    ):
+        target_gui.tooltip_parent_map = {}
+    target_gui.tooltip_parent_map[tt_tag] = parent
+
+    colors = (
+        getattr(target_gui, "ui_cfg", {}).get("colors", {})
+        if hasattr(target_gui, "ui_cfg")
+        else {}
+    )
+    dim_col = (
+        colors.get("text_dim", [150, 150, 150])
+        if isinstance(colors, dict)
+        else [150, 150, 150]
+    )
     try:
         if text_tag:
-            dpg.add_text(text, parent=tag, color=dim_col, tag=text_tag)
+            dpg.add_text(text, parent=tt_tag, color=dim_col, tag=text_tag)
         else:
-            dpg.add_text(text, parent=tag, color=dim_col)
+            dpg.add_text(text, parent=tt_tag, color=dim_col)
     except (Exception, SystemError):
         pass
-    if hasattr(target_gui, "beginner_tags") and isinstance(target_gui.beginner_tags, list):
-        target_gui.beginner_tags.append(tag)
-    return tag
+
+    if always_on:
+        if not hasattr(target_gui, "icon_tooltip_tags") or not isinstance(
+            target_gui.icon_tooltip_tags, list
+        ):
+            target_gui.icon_tooltip_tags = []
+        target_gui.icon_tooltip_tags.append(tt_tag)
+    else:
+        if hasattr(target_gui, "beginner_tags") and isinstance(
+            target_gui.beginner_tags, list
+        ):
+            target_gui.beginner_tags.append(tt_tag)
+    return tt_tag
+
+
+def build_beginner_tooltip(parent, text, gui, text_tag=None, always_on=False):
+    """A reusable tooltip attached to an existing widget that only appears when Beginner Mode is active."""
+    return build_tooltip(
+        parent=parent, text=text, gui=gui, text_tag=text_tag, always_on=always_on
+    )
+
+# Right margin of the fields in a side panel: the same as build_horizontal_separator
+FIELD_RIGHT_MARGIN = 8
+# Height below a list that fills its panel (negative child window height):
+# the panel bottom margin
+LIST_BOTTOM_H = 8
+# Label column of the 'label | field' rows (label_row, build_stepped_slider)
+LABEL_COL_W = 72
+
+# Fields followed by a beginner-only help button: tag -> (width, width in beginner mode)
+_HELP_FIELDS = {}
+
+
+def _item_gap(gui):
+    cfg = getattr(gui, "ui_cfg", None)
+    return cfg["layout"].get("sidebar_item_gap", 8) if isinstance(cfg, dict) else 8
+
+
+def icons_width(n, gui):
+    """Room taken by n icon buttons (20 px) and their spacing, after a field."""
+    return n * (20 + _item_gap(gui))
+
+
+def help_aware_width(tag, width, gui, extra=None):
+    """Width of a field followed by a help button shown in beginner mode only:
+    `width` normally, minus the button (`extra`, default 20 px + spacing) in
+    beginner mode. Registered so apply_help_field_widths resizes it when the
+    mode is toggled."""
+    if extra is None:
+        extra = 20 + _item_gap(gui)
+    _HELP_FIELDS[tag] = (width, width - extra)
+    return _HELP_FIELDS[tag][1] if getattr(gui, "is_beginner_mode", False) else width
+
+
+def apply_help_field_widths(is_beginner):
+    """Beginner mode toggled: resize the fields registered by help_aware_width."""
+    for tag, (w, w_beg) in list(_HELP_FIELDS.items()):
+        if dpg.does_item_exist(tag):
+            dpg.set_item_width(tag, w_beg if is_beginner else w)
+        else:
+            del _HELP_FIELDS[tag]
+
+
+@contextmanager
+def requirement_banner(tag, need, current_tag, colors):
+    """Shown above a tool whose controls are greyed out because the current
+    image does not fit it: what the tool needs (one line) and what the current
+    image is (current_tag, set by the tool). Items added in the with-block
+    (e.g. an action button) go below."""
+    with dpg.group(tag=tag):
+        # wrap=0: wrap at the panel edge
+        dpg.add_text(need, wrap=0, color=colors.get("outdated", [255, 180, 50, 255]))
+        dpg.add_text("", tag=current_tag, color=colors.get("text_dim", [150, 150, 150, 255]))
+        yield
+        dpg.add_spacer(height=4)
+
+
+_ENABLE_TYPES = (
+    "mvButton", "mvCheckbox", "mvCombo", "mvRadioButton", "mvSelectable",
+    "mvSliderFloat", "mvSliderInt", "mvDragFloat", "mvDragInt",
+    "mvInputFloat", "mvInputInt", "mvInputText", "mvColorEdit",
+)
+
+
+def set_controls_enabled(container, enabled):
+    """Enable / grey out every control inside `container` (recursively);
+    the beginner help buttons stay usable."""
+    if not dpg.does_item_exist(container):
+        return
+    for slot in (0, 1):
+        for child in dpg.get_item_children(container, slot) or []:
+            kind = dpg.get_item_type(child).split("::")[-1]
+            if kind in _ENABLE_TYPES and not (
+                kind == "mvButton" and dpg.get_item_label(child) == "\uf059"
+            ):
+                dpg.configure_item(child, enabled=enabled)
+            set_controls_enabled(child, enabled)
+
+
+@contextmanager
+def columns_row(n, width=-FIELD_RIGHT_MARGIN, tag=None):
+    """A row of n equal columns (borderless table) ending at `width` (the
+    right margin by default): the items of the with-block are its cells, in
+    order; give them width=-1 to fill their cell."""
+    kw = {"tag": tag} if tag else {}
+    with dpg.table(
+        header_row=False,
+        borders_innerH=False,
+        borders_innerV=False,
+        borders_outerH=False,
+        borders_outerV=False,
+        width=width,
+        **kw,
+    ):
+        for _ in range(n):
+            dpg.add_table_column(width_stretch=True)
+        with dpg.table_row() as row:
+            yield row
+
+
+@contextmanager
+def label_row(label, label_w, **text_kwargs):
+    """A row 'label | field(s)' whose fields start at label_w, whatever the label
+    length: items added in the with-block go in a horizontal group after the
+    label. Give the last field width=-FIELD_RIGHT_MARGIN to end on the margin."""
+    with dpg.group(horizontal=True, xoffset=label_w):
+        dpg.add_text(label, **text_kwargs)
+        with dpg.group(horizontal=True) as fields:
+            yield fields
+
 
 def build_stepped_slider(
     label,
@@ -295,8 +668,13 @@ def build_stepped_slider(
     label_width=None,
     user_data=None,
     use_slider=False,
+    label_col=None,
 ):
-    """A reusable UI component for a slider with + and - step buttons."""
+    """A reusable UI component for a slider with + and - step buttons.
+
+    label_col: the label takes a column of this width (see label_row) and the
+    field + buttons end on FIELD_RIGHT_MARGIN; the checkbox / color, if any,
+    go after the label."""
 
     # --- INTERNAL STATE (Hidden closure) ---
     # Python closures capture dictionaries by reference. This means both buttons
@@ -320,7 +698,12 @@ def build_stepped_slider(
 
     # ---------------------------------------
 
-    with dpg.group(horizontal=True):
+    gap = _item_gap(gui)
+    with ExitStack() as row:
+        row.enter_context(dpg.group(horizontal=True, xoffset=label_col or 0))
+        if label_col:
+            dpg.add_text(label.strip())
+            row.enter_context(dpg.group(horizontal=True))
         if has_checkbox:
             dpg.add_checkbox(tag=check_tag or 0, enabled=False, callback=check_cb)  # type: ignore
 
@@ -336,7 +719,9 @@ def build_stepped_slider(
                 height=20,
             )
 
-        if label_width:
+        if label_col:
+            pass
+        elif label_width:
             lw = label_width
             if has_color:
                 spacing = gui.ui_cfg["layout"].get("sidebar_item_gap", 8) if (gui and hasattr(gui, "ui_cfg")) else 8
@@ -348,12 +733,18 @@ def build_stepped_slider(
             dpg.add_text(label)
 
         is_beg = getattr(gui, "is_beginner_mode", False) if gui else False
+        if label_col:  # the 2 step buttons, then the right margin
+            field_w = -(2 * (20 + gap) + FIELD_RIGHT_MARGIN)
+            if help_text and gui:  # + spacer (2 px) and help button
+                field_w = help_aware_width(tag, field_w, gui, extra=2 + 20 + 2 * gap)
+        else:
+            field_w = -100 if (help_text and is_beg) else -60
 
         # 1. The Slider
         if use_slider:
             dpg.add_slider_float(
                 tag=tag,
-                width=-100 if (help_text and is_beg) else -60,
+                width=field_w,
                 format=format,
                 min_value=min_val,
                 max_value=max_val,
@@ -365,7 +756,7 @@ def build_stepped_slider(
         else:
             dpg.add_drag_float(
                 tag=tag,
-                width=-100 if (help_text and is_beg) else -60,
+                width=field_w,
                 format=format,
                 speed=1.0,
                 min_value=min_val,

@@ -5,6 +5,9 @@ import dearpygui.dearpygui as dpg
 from vvv.plugins.plugin_api import PluginAPI, PluginTagMixin
 from vvv.ui.file_dialog import open_file_dialog
 from vvv.ui.ui_notifications import show_message
+from vvv.ui.ui_components import build_tooltip, build_icon_button
+
+SCAN_BTN_W = 120
 from vvv.utils import clean_string
 
 
@@ -31,6 +34,7 @@ class DicomPluginUI(PluginTagMixin):
         self.is_scanning = False
         self.scan_progress = 0.0
         self.scan_status_text = ""
+        self.scan_cache_info = {}
         self.scan_finished = False
         self.scan_errors: list[str] = []
         self._stop_event = threading.Event()
@@ -49,11 +53,18 @@ class DicomPluginUI(PluginTagMixin):
         if self.scan_finished:
             if dpg.does_item_exist(self.window_tag):
                 dpg.configure_item(self._t("scan_progress"), show=False)
-                status = f"  ({len(self.scanned_series)} found)"
+                status = f"  ({len(self.scanned_series)} found"
+                info = self.scan_cache_info
+                if info and not info.get("use_cache", True):
+                    status += " · cache rebuilt"
+                elif info and info.get("cached"):
+                    status += f" · {info['cached']}/{info['dirs']} folders from cache"
+                status += ")"
                 if self.scan_errors:
                     status += f", {len(self.scan_errors)} dir(s) failed"
                 dpg.set_value(self._t("scan_status"), status)
                 dpg.configure_item(self._t("btn_scan"), enabled=True)
+                dpg.configure_item(self._t("btn_rebuild_cache"), enabled=True)
                 self._populate_series_list()
                 if self.scan_errors:
                     show_message(
@@ -183,19 +194,20 @@ class DicomPluginUI(PluginTagMixin):
                 ):
                     # --- TOP BAR ---
                     with dpg.group(horizontal=True):
-                        btn_dir = dpg.add_button(
-                            label="\uf07c",
-                            width=30,
+                        build_icon_button(
+                            icon="\uf07c",
                             callback=self.on_select_folder,
                             tag=self._t("btn_select_dir"),
+                            tooltip="Select folder to scan for DICOM files",
+                            gui=self.api,
                         )
-                        if dpg.does_item_exist("icon_font_tag"):
-                            dpg.bind_item_font(btn_dir, "icon_font_tag")
-
+                        # The path fills the row up to the checkbox and Scan button
+                        text_w = dpg.get_text_size("Recurse Subfolders") if dpg.is_dearpygui_running() else None
+                        recurse_w = 28 + int(text_w[0] if text_w else 130)
                         dpg.add_input_text(
                             default_value=self.last_folder,
                             hint="Select a folder to scan...",
-                            width=500,
+                            width=-(recurse_w + 10 + SCAN_BTN_W + 20 + 4 * 8),
                             tag=self._t("input_folder_path"),
                         )
                         dpg.add_checkbox(
@@ -213,9 +225,17 @@ class DicomPluginUI(PluginTagMixin):
                         dpg.add_spacer(width=10)
                         dpg.add_button(
                             label="Scan Folder",
-                            width=120,
+                            width=SCAN_BTN_W,
                             callback=self.on_scan_clicked,
                             tag=self._t("btn_scan"),
+                        )
+                        build_icon_button(
+                            icon="\uf01e",
+                            callback=self.on_rebuild_cache_clicked,
+                            tag=self._t("btn_rebuild_cache"),
+                            tooltip="Rescan everything, without the scan cache (rebuilds it).\n"
+                            "The cache keeps each folder's result while its files are unchanged.",
+                            gui=self.api,
                         )
 
                     dpg.add_separator()
@@ -375,7 +395,6 @@ class DicomPluginUI(PluginTagMixin):
                                 btn_open = dpg.add_button(
                                     label="Open Series as Image",
                                     width=-1,
-                                    height=30,
                                     callback=self.on_open_clicked,
                                     tag=self._t("btn_open"),
                                 )
@@ -427,6 +446,12 @@ class DicomPluginUI(PluginTagMixin):
             dpg.set_value(self._t("input_folder_path"), folder)
 
     def on_scan_clicked(self) -> None:
+        self._start_scan(use_cache=True)
+
+    def on_rebuild_cache_clicked(self) -> None:
+        self._start_scan(use_cache=False)
+
+    def _start_scan(self, use_cache) -> None:
         folder = dpg.get_value(self._t("input_folder_path"))
         if not folder or not os.path.exists(folder):
             dpg.set_value(self._t("scan_status"), "  (Invalid Path)")
@@ -440,6 +465,7 @@ class DicomPluginUI(PluginTagMixin):
         dpg.set_value(self._t("scan_status"), "  (Scanning...)")
         dpg.configure_item(self._t("scan_progress"), show=True)
         dpg.configure_item(self._t("btn_scan"), enabled=False)
+        dpg.configure_item(self._t("btn_rebuild_cache"), enabled=False)
         dpg.delete_item(self._t("series_list"), children_only=True)
 
         # Cancel any active scan worker before launching a new one
@@ -455,11 +481,11 @@ class DicomPluginUI(PluginTagMixin):
         # Run scan in background so UI doesn't freeze
         threading.Thread(
             target=self._run_scan,
-            args=(folder, recurse, stop_event, current_token),
+            args=(folder, recurse, stop_event, current_token, use_cache),
             daemon=True,
         ).start()
 
-    def _run_scan(self, folder, recurse, stop_event=None, token=None):
+    def _run_scan(self, folder, recurse, stop_event=None, token=None, use_cache=True):
         assert self.api is not None
         if stop_event is None:
             stop_event = self._stop_event
@@ -469,7 +495,7 @@ class DicomPluginUI(PluginTagMixin):
         local_series = []
         local_errors = []
         # Consume the generator yielded from PluginAPI (which delegates to controller/file.py)
-        for result in self.api.scan_dicom_folder(folder, recursive=recurse):
+        for result in self.api.scan_dicom_folder(folder, recursive=recurse, use_cache=use_cache):
             if stop_event.is_set() or self._scan_token != token or self._stop_event.is_set():
                 if self._scan_token == token:
                     self.is_scanning = False
@@ -489,6 +515,7 @@ class DicomPluginUI(PluginTagMixin):
             return
 
         # Signal completion
+        self.scan_cache_info = self.api.last_dicom_scan_info()
         self.scanned_series = local_series
         self.scan_errors = local_errors
         self.is_scanning = False

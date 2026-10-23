@@ -7,15 +7,23 @@ from vvv.utils import get_resource_path
 
 logger = logging.getLogger(__name__)
 
+TOOLTIP_DELAY_NORMAL = 0.6
+TOOLTIP_DELAY_BEGINNER = 0.1
+
 
 def build_ui_config(controller):
     """Centralizes all layout dimensions, margins, and colors."""
     shared_margin = 7
     is_mac = sys.platform == "darwin"
 
-    # Mac Retina scaling makes text blocks taller and gaps slightly tighter
-    av_h = 345 if is_mac else 345  # Active Viewer Height
-    ch_h = 145 if is_mac else 145  # Crosshair Height
+    # macOS uses Helvetica (14/11 px), Linux/Windows uses Liberation Sans (16.24/13 px)
+    # With larger fonts and wider line height on Linux/Windows, panels need slightly more vertical room
+    # Sized so the bottom space below the last control matches the top space (~10 px)
+    av_h = 345 if is_mac else 378  # Active Viewer Height
+    ch_h = 160 if is_mac else 178  # Crosshair Height
+    nav_w = controller.settings.data["layout"]["nav_panel_width"]
+    if not is_mac:
+        nav_w = max(nav_w, 90)
     item_gap = 6 if is_mac else 8
 
     return {
@@ -34,7 +42,7 @@ def build_ui_config(controller):
             "menu_m_left": 0,
             "menu_m_right": 0,
             "side_panel_w": controller.settings.data["layout"]["side_panel_width"],
-            "nav_panel_w": controller.settings.data["layout"]["nav_panel_width"],
+            "nav_panel_w": nav_w,
             "nav_btn_h": 35,
             "gap_center": shared_margin,
             "left_m_left": shared_margin,
@@ -214,6 +222,12 @@ def register_dynamic_themes(ui_cfg, controller):
             with dpg.theme_component(dpg.mvAll):
                 dpg.add_theme_style(dpg.mvStyleVar_ItemSpacing, 0, 0)
 
+    if not dpg.does_item_exist("clean_separator_theme"):
+        with dpg.theme(tag="clean_separator_theme"):
+            with dpg.theme_component(dpg.mvTable):
+                dpg.add_theme_style(dpg.mvStyleVar_CellPadding, 0, 0)
+                dpg.add_theme_style(dpg.mvStyleVar_ItemSpacing, 0, 0)
+
     if not dpg.does_item_exist("sidebar_bg_theme"):
         with dpg.theme(tag="sidebar_bg_theme"):
             with dpg.theme_component(dpg.mvChildWindow):
@@ -301,6 +315,7 @@ def register_dynamic_themes(ui_cfg, controller):
     if not dpg.does_item_exist("orange_button_theme"):
         with dpg.theme(tag="orange_button_theme"):
             with dpg.theme_component(dpg.mvButton):
+                dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 6)
                 dpg.add_theme_color(dpg.mvThemeCol_Button, cfg_c["outdated"])
                 dpg.add_theme_color(
                     dpg.mvThemeCol_ButtonHovered,
@@ -316,6 +331,13 @@ def register_dynamic_themes(ui_cfg, controller):
         with dpg.theme(tag="theme_rounded_nav"):
             with dpg.theme_component(dpg.mvButton):
                 dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 6)
+
+    # Nav button of a tool that does not apply to the current image (still clickable)
+    if not dpg.does_item_exist("theme_rounded_nav_muted"):
+        with dpg.theme(tag="theme_rounded_nav_muted"):
+            with dpg.theme_component(dpg.mvButton):
+                dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 6)
+                dpg.add_theme_color(dpg.mvThemeCol_Text, cfg_c["text_muted"])
 
     if not dpg.does_item_exist("theme_ws_nav_btn"):
         with dpg.theme(tag="theme_ws_nav_btn"):
@@ -333,6 +355,16 @@ def register_dynamic_themes(ui_cfg, controller):
         with dpg.theme(tag="active_nav_button_theme"):
             with dpg.theme_component(dpg.mvButton):
                 dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 6)
+                dpg.add_theme_color(dpg.mvThemeCol_Button, cfg_c["bg_menu_active"])
+                dpg.add_theme_color(
+                    dpg.mvThemeCol_ButtonHovered, cfg_c["bg_menu_active"]
+                )
+                dpg.add_theme_color(dpg.mvThemeCol_Text, cfg_c["text_active"])
+
+    # Same colors, square corners: panel buttons (the nav column is rounded)
+    if not dpg.does_item_exist("active_button_theme"):
+        with dpg.theme(tag="active_button_theme"):
+            with dpg.theme_component(dpg.mvButton):
                 dpg.add_theme_color(dpg.mvThemeCol_Button, cfg_c["bg_menu_active"])
                 dpg.add_theme_color(
                     dpg.mvThemeCol_ButtonHovered, cfg_c["bg_menu_active"]
@@ -359,20 +391,41 @@ def register_dynamic_themes(ui_cfg, controller):
                 dpg.add_theme_color(dpg.mvThemeCol_Text, [20, 25, 30, 255])
 
 
+# macOS: the system Helvetica (sharpest on 1x external screens, the layout was
+# tuned on it). Elsewhere: the shipped Liberation Sans (SIL OFL 1.1, see
+# fonts/LiberationSans-LICENSE.txt). DPG sizes a font by its line height
+# (ascent + descent) and does not hint glyphs, so on 1x screens text is sharp
+# only when the cap height lands on whole pixels: Liberation Sans cap height =
+# 0.6158 x size -> 16.24 gives 10 px (Helvetica 14: 10.04 px), 13 gives 8 px.
+MACOS_UI_FONT = ("/System/Library/Fonts/Helvetica.ttc", 14, 11)
+SHIPPED_UI_FONT = ("LiberationSans-Regular.ttf", 16.24, 13)
+
+
+def _pick_ui_font():
+    """(path, size, small size) of the UI text font, or None for the DPG default."""
+    if sys.platform == "darwin" and os.path.exists(MACOS_UI_FONT[0]):
+        return MACOS_UI_FONT
+    name, size, small = SHIPPED_UI_FONT
+    path = get_resource_path(os.path.join("fonts", name))
+    if os.path.exists(path):
+        return path, size, small
+    logger.warning(f"UI font not found ({path}), using a system font instead.")
+    if sys.platform == "win32":
+        windir = os.environ.get("WINDIR", "C:\\Windows")
+        path = os.path.join(windir, "Fonts", "segoeui.ttf")
+    else:
+        path = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+    if os.path.exists(path):
+        return path, 14, 11
+    logger.warning("No system font found: using the DearPyGui default font.")
+    return None
+
+
 def load_fonts():
-    main_font_path = get_resource_path(os.path.join("fonts", "Roboto-Regular.ttf"))
+    ui_font = _pick_ui_font()
     icon_font_path = get_resource_path(
         os.path.join("fonts", "Font Awesome 7 Free-Solid-900.otf")
     )
-
-    if not os.path.exists(main_font_path):
-        if sys.platform == "darwin":
-            main_font_path = "/System/Library/Fonts/Helvetica.ttc"  # Native macOS font
-        elif sys.platform == "win32":
-            windir = os.environ.get("WINDIR", "C:\\Windows")
-            main_font_path = os.path.join(windir, "Fonts", "segoeui.ttf")
-        else:
-            main_font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 
     # Check DPG version to avoid calling deprecated no-op functions in >= 2.3
     is_legacy_dpg = False
@@ -392,8 +445,9 @@ def load_fonts():
         default_font = None
 
         # 1. Load the UI Text Font
-        if os.path.exists(main_font_path):
-            with dpg.font(main_font_path, 14) as font:
+        if ui_font:
+            main_font_path, size, small_size = ui_font
+            with dpg.font(main_font_path, size) as font:
                 if is_legacy_dpg:
                     try:
                         # pyrefly: ignore [deprecated]
@@ -402,7 +456,7 @@ def load_fonts():
                         pass
                 default_font = font
 
-            with dpg.font(main_font_path, 11, tag="small_font_tag"):
+            with dpg.font(main_font_path, small_size, tag="small_font_tag"):
                 if is_legacy_dpg:
                     try:
                         # pyrefly: ignore [deprecated]
@@ -420,6 +474,7 @@ def load_fonts():
                         # pyrefly: ignore [deprecated]
                         dpg.add_font_chars(
                             [
+                                0xE001,  # Custom: Save As (floppy with down arrow badge)
                                 0xF0C5,
                                 0xF06E,
                                 0xF070,
@@ -455,7 +510,7 @@ def load_fonts():
                 if is_legacy_dpg:
                     try:
                         # pyrefly: ignore [deprecated]
-                        dpg.add_font_chars([0xF77C, 0xF059, 0xF013])
+                        dpg.add_font_chars([0xE001, 0xF77C, 0xF059, 0xF013])
                         # pyrefly: ignore [deprecated]
                         dpg.add_font_range_hint(dpg.mvFontRangeHint_Default)
                     except Exception:
@@ -495,6 +550,11 @@ def setup_themes():
             dpg.add_theme_color(dpg.mvThemeCol_Button, [0, 0, 0, 0])
             dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, [60, 60, 60])
             dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 3)
+        with dpg.theme_component(dpg.mvButton, enabled_state=False):  # dimmed, no box
+            dpg.add_theme_color(dpg.mvThemeCol_Button, [0, 0, 0, 0])
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, [0, 0, 0, 0])
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, [0, 0, 0, 0])
+            dpg.add_theme_color(dpg.mvThemeCol_Text, [150, 150, 150])  # = text_muted
 
     # Delete Button Theme
     with dpg.theme(tag="delete_button_theme"):
@@ -502,6 +562,11 @@ def setup_themes():
             dpg.add_theme_color(dpg.mvThemeCol_Button, [0, 0, 0, 0])
             dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, [150, 40, 40])
             dpg.add_theme_color(dpg.mvThemeCol_Text, [200, 100, 100])
+        with dpg.theme_component(dpg.mvButton, enabled_state=False):  # dimmed, no box
+            dpg.add_theme_color(dpg.mvThemeCol_Button, [0, 0, 0, 0])
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, [0, 0, 0, 0])
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, [0, 0, 0, 0])
+            dpg.add_theme_color(dpg.mvThemeCol_Text, [150, 150, 150])  # = text_muted
 
     # Read-only Input Theme (for sidebar info)
     with dpg.theme(tag="readonly_theme"):

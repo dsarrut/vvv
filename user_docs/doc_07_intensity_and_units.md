@@ -31,8 +31,9 @@ Below the W/L controls, an interactive real-time histogram plots the voxel inten
 
 ### Histogram Tools
 * **Ctr**: Centers the histogram zoom around the active Window/Level range.
-* **Bar**: Toggles bar fill rendering.
-* **Lin / Log**: Switches the frequency vertical axis between linear and logarithmic scale.
+* **Bar / Line**: Shows the current histogram style (bars or line); click to switch.
+* **Lin / Log**: Shows the current frequency scale (linear or logarithmic); click to switch.
+* **X center / X width / Y max**: Exact values of the histogram view (center and width of the X axis, height of the Y axis).
 * **Popout ()**: Opens the histogram in an enlarged standalone window for high-precision inspection.
 
 ---

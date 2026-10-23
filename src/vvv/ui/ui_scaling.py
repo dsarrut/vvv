@@ -3,7 +3,16 @@ from typing import Optional, Callable, Tuple, Any, Dict
 import numpy as np
 import dearpygui.dearpygui as dpg
 from vvv.plugins.plugin_api import PluginAPI
-from vvv.ui.ui_components import build_beginner_tooltip, build_help_button, build_section_title
+from vvv.ui.ui_components import (
+    FIELD_RIGHT_MARGIN,
+    LABEL_COL_W,
+    build_beginner_tooltip,
+    build_tooltip,
+    build_help_button,
+    build_section_title,
+    columns_row,
+    label_row,
+)
 
 
 @dataclass
@@ -97,9 +106,9 @@ class IntensityScalingComponent:
             )
             dpg.add_spacer(height=2)
 
+            # Rows: one label column (LABEL_COL_W), fields end on the right margin
             # --- 1. Current Scaled Range (White text) ---
-            with dpg.group(horizontal=True):
-                dpg.add_text("Range:", color=cfg_c["text_dim"])
+            with label_row("Range", LABEL_COL_W):
                 dpg.add_text("[---, ---]", tag=self._t("text_range"), color=[255, 255, 255, 255])
             build_beginner_tooltip(
                 self._t("text_range"),
@@ -110,20 +119,19 @@ class IntensityScalingComponent:
             dpg.add_spacer(height=3)
 
             # --- 2. Scale Factor Input (No +- buttons, no multipliers) ---
-            with dpg.group(horizontal=True):
-                dpg.add_text("Scale factor:", color=cfg_c["text_dim"])
+            with label_row("Scale", LABEL_COL_W):
                 inp_s = dpg.add_input_float(
                     tag=self._t("input_scale_factor"),
                     default_value=1.0,
                     step=0.0,
                     step_fast=0.0,
                     format="%.4g",
-                    width=-1,
+                    width=-FIELD_RIGHT_MARGIN,
                     callback=self._on_scale_factor_changed,
                 )
             build_beginner_tooltip(
                 inp_s,
-                "User multiplier S: scales raw image values.\n"
+                "Scale factor (user multiplier S): scales raw image values.\n"
                 "Works independently with prescription dose for relative normalization.",
                 api,
             )
@@ -131,12 +139,11 @@ class IntensityScalingComponent:
             dpg.add_spacer(height=4)
 
             # --- 3. Normalization Controls ---
-            with dpg.group(horizontal=True):
-                dpg.add_text("Normalize:", color=cfg_c["text_dim"])
+            with label_row("Normalize", LABEL_COL_W), columns_row(3):
                 b_none = dpg.add_button(
                     label="None",
                     tag=self._t("btn_norm_none"),
-                    width=42,
+                    width=-1,
                     callback=self._on_norm_none_clicked,
                 )
                 build_beginner_tooltip(b_none, "Display absolute values (Gy, mGy) using user scale factor.", api)
@@ -144,7 +151,7 @@ class IntensityScalingComponent:
                 b_max = dpg.add_button(
                     label="Max",
                     tag=self._t("btn_norm_max"),
-                    width=40,
+                    width=-1,
                     callback=self._on_norm_max_clicked,
                 )
                 build_beginner_tooltip(b_max, "Relative normalization: peak voxel equals 100%.", api)
@@ -152,23 +159,24 @@ class IntensityScalingComponent:
                 b_goto_max = dpg.add_button(
                     label="\uf05b",
                     tag=self._t("btn_goto_max"),
-                    width=22,
+                    width=-1,
                     callback=self._on_goto_max_clicked,
                 )
                 self._bind_icon_font(b_goto_max)
-                build_beginner_tooltip(
+                build_tooltip(
                     b_goto_max,
                     "Go to Max: Center crosshair and camera on maximum dose voxel.",
                     api,
+                    always_on=True,
                 )
 
             # Prescription / Reference Value row below
             dpg.add_spacer(height=2)
-            with dpg.group(horizontal=True):
+            with label_row("", LABEL_COL_W), columns_row(2):
                 b_val = dpg.add_button(
                     label=self._ref_label,
                     tag=self._t("btn_norm_val"),
-                    width=90,
+                    width=-1,
                     callback=self._on_norm_val_clicked,
                 )
                 build_beginner_tooltip(
@@ -180,7 +188,7 @@ class IntensityScalingComponent:
                 b_roi = dpg.add_button(
                     label="ROI Mean",
                     tag=self._t("btn_norm_roi"),
-                    width=75,
+                    width=-1,
                     enabled=False,
                     callback=self._on_norm_roi_clicked,
                 )
@@ -189,19 +197,14 @@ class IntensityScalingComponent:
             # Sub-panel for Prescription / Ref Value input
             with dpg.group(tag=self._t("group_norm_val"), show=False):
                 dpg.add_spacer(height=2)
-                with dpg.group(horizontal=True):
-                    dpg.add_text(
-                        f"{self._ref_label}:",
-                        tag=self._t("label_norm_val"),
-                        color=cfg_c["text_dim"],
-                    )
+                with label_row("Value", LABEL_COL_W, tag=self._t("label_norm_val")):
                     inp_val = dpg.add_input_float(
                         tag=self._t("input_norm_val"),
                         default_value=self._default_target_value,
                         format="%.4g",
                         step=0.0,
                         step_fast=0.0,
-                        width=-1,
+                        width=-FIELD_RIGHT_MARGIN,
                         callback=self._on_norm_val_changed,
                     )
                     build_beginner_tooltip(
@@ -213,14 +216,14 @@ class IntensityScalingComponent:
             # Sub-panel for ROI Mean
             with dpg.group(tag=self._t("group_norm_roi"), show=False):
                 dpg.add_spacer(height=2)
-                dpg.add_text("Target ROI:", color=cfg_c["text_dim"])
-                dpg.add_combo(
-                    items=["(None)"],
-                    default_value="(None)",
-                    tag=self._t("combo_norm_roi"),
-                    width=-1,
-                    callback=self._on_norm_roi_changed,
-                )
+                with label_row("ROI", LABEL_COL_W):
+                    dpg.add_combo(
+                        items=["(None)"],
+                        default_value="(None)",
+                        tag=self._t("combo_norm_roi"),
+                        width=-FIELD_RIGHT_MARGIN,
+                        callback=self._on_norm_roi_changed,
+                    )
                 dpg.add_text(
                     "ROI Mean: ---",
                     tag=self._t("text_roi_mean"),
@@ -228,16 +231,16 @@ class IntensityScalingComponent:
                 )
 
             dpg.add_spacer(height=3)
-            with dpg.group(horizontal=True):
-                dpg.add_text("Status:", color=cfg_c["text_dim"])
+            with label_row("Status", LABEL_COL_W):
                 dpg.add_text("Absolute", tag=self._t("text_norm_status"), color=cfg_c["text_dim"])
 
             # --- 4. Actions: Bake & Reset (No horizontal line) ---
             dpg.add_spacer(height=6)
-            with dpg.group(horizontal=True):
+            with columns_row(2):
                 btn_bake = dpg.add_button(
                     label="Bake",
                     tag=self._t("btn_bake"),
+                    width=-1,
                     callback=self._on_bake_clicked,
                 )
                 build_beginner_tooltip(
@@ -249,6 +252,7 @@ class IntensityScalingComponent:
                 btn_reset = dpg.add_button(
                     label="Reset",
                     tag=self._t("btn_reset"),
+                    width=-1,
                     callback=self._on_reset_clicked,
                 )
                 build_beginner_tooltip(
@@ -870,11 +874,9 @@ class IntensityScalingComponent:
             dpg.configure_item(self._t("group_norm_roi"), show=is_roi)
 
         if is_val:
-            if dpg.does_item_exist(self._t("label_norm_val")):
-                dpg.set_value(
-                    self._t("label_norm_val"),
-                    f"{self._ref_label}{unit_lbl}:",
-                )
+            # The unit goes in the field: the label fits the label column
+            if dpg.does_item_exist(self._t("input_norm_val")):
+                dpg.configure_item(self._t("input_norm_val"), format=f"%.4g{unit_lbl}")
             if dpg.does_item_exist(self._t("input_norm_val")):
                 if not dpg.is_item_active(self._t("input_norm_val")):
                     dpg.set_value(self._t("input_norm_val"), state.norm_target_value)

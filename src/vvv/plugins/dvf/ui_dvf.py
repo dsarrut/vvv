@@ -4,6 +4,7 @@ from vvv.ui.ui_components import (
     build_stepped_slider,
     build_help_button,
     build_beginner_tooltip,
+    requirement_banner,
 )
 from .control_dvf import DvfController
 from vvv.plugins.plugin_api import PluginTagMixin
@@ -27,12 +28,13 @@ class DvfUI(PluginTagMixin):
             )
             build_beginner_tooltip(active_title, "The currently selected DVF volume.", api)
 
-            dpg.add_text(
-                "Not a Displacement Vector Field.",
-                tag=self._t("warning"),
-                color=cfg_c.get("text_muted", [150, 150, 150]),
-                show=False,
-            )
+            with requirement_banner(
+                self._t("warning"),
+                "Needs a displacement vector field (vector image) as base or fused image.",
+                self._t("warning_current"),
+                cfg_c,
+            ):
+                pass
 
             with dpg.group(tag=self._t("controls")):
                 with dpg.group(tag=self._t("display_mode_group"), horizontal=True):
@@ -101,7 +103,7 @@ class DvfUI(PluginTagMixin):
                         has_color=True,
                         color_tag=self._t("color_min"),
                         color_cb=self._c.on_color_min_changed,
-                        color_default=(0, 255, 255, 255),
+                        color_default=(255, 255, 0, 255),
                         help_text="Minimum vector magnitude required to draw the vector at all.",
                         gui=api,
                         label_width=90,

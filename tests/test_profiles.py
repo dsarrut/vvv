@@ -53,6 +53,18 @@ class TestProfileFilterPerImage(unittest.TestCase):
         self.assertEqual(self.ctrl.profile_filters["img2"], "")
         self.assertEqual(self.ctrl.profile_filters["img1"], "tumor")
 
+    def test_invert_per_image_and_cleared_with_the_text(self):
+        self._set_active_image("img1")
+        self.ctrl.on_filter_changed("Tumor")
+        self.ctrl.on_toggle_filter_invert()
+        self.assertTrue(self.ctrl.profile_filter_inverts["img1"])
+        self._set_active_image("img2")
+        self.assertFalse(self.ctrl.profile_filter_inverts.get("img2", False))
+
+        self._set_active_image("img1")
+        self.ctrl.on_clear_filter_clicked()
+        self.assertFalse(self.ctrl.profile_filter_inverts["img1"])
+
     def test_filter_cleaned_up_on_image_removed(self):
         self._set_active_image("img1")
         self.ctrl.on_filter_changed("Tumor")

@@ -1,8 +1,13 @@
 import dearpygui.dearpygui as dpg
 from vvv.ui.ui_components import (
+    ICON_SAVE,
+    ICON_SAVE_AS,
+    FIELD_RIGHT_MARGIN,
     build_section_title,
+    build_horizontal_separator,
     build_help_button,
     build_beginner_tooltip,
+    build_tooltip,
     build_renamable_input,
 )
 
@@ -79,9 +84,9 @@ def sync_image_list_ui(gui):
         input_tag = f"input_name_{vs_id}"
         if dpg.does_item_exist(input_tag):
             if not dpg.is_item_focused(input_tag) and not dpg.is_item_active(input_tag):
-                name_str, _ = gui.controller.get_image_display_name(vs_id)
-                if dpg.get_value(input_tag) != name_str:
-                    dpg.set_value(input_tag, name_str)
+                name = gui.controller.get_image_name(vs_id)
+                if dpg.get_value(input_tag) != name:
+                    dpg.set_value(input_tag, name)
 
 
 def _on_time_slider_changed(gui, vs_id, time_idx):
@@ -137,9 +142,8 @@ def refresh_image_list_ui(gui):
                 dpg.add_theme_color(dpg.mvThemeCol_FrameBg, [30, 30, 30, 255])
                 dpg.add_theme_color(dpg.mvThemeCol_CheckMark, [50, 50, 50, 255])
 
-    for idx, (vs_id, vs) in enumerate(
-        list(gui.controller.view_states.items()), start=1
-    ):
+    items = list(gui.controller.view_states.items())
+    for idx, (vs_id, vs) in enumerate(items, start=1):
         with dpg.group(parent=container, horizontal=True):
             layout = getattr(gui, "active_layout", "4")
             with dpg.group():
@@ -203,13 +207,7 @@ def refresh_image_list_ui(gui):
                         val = dpg.get_value(sender)
                         if val is None:
                             return
-                        new_name = val.strip()
-
-                        # Strip trailing modification stars * if user left them in
-                        import re
-
-                        new_name = re.sub(r"\s*\*$", "", new_name)
-                        new_name = re.sub(r"^\(\d+\)\s*", "", new_name)
+                        new_name = val.strip()  # the field holds the name only
 
                         vol = gui.controller.volumes.get(img_vs_id)
                         if vol and new_name:
@@ -232,12 +230,14 @@ def refresh_image_list_ui(gui):
                                     dpg.set_value("input_info_name", new_name)
                             gui.controller.ui_needs_refresh = True
 
+                    # Number as a fixed label: the field holds the name only
+                    dpg.add_text(f"({gui.controller.image_number(vs_id) or '?'})")
                     lbl_id = build_renamable_input(
                         tag=input_name_tag,
-                        default_value=name_str,
+                        default_value=gui.controller.get_image_name(vs_id),
                         callback=on_rename,
                         user_data=vs_id,
-                        width=180,
+                        width=-FIELD_RIGHT_MARGIN,
                         tooltip=vs.volume.get_human_readable_file_path(),
                         gui=gui,
                     )
@@ -255,25 +255,33 @@ def refresh_image_list_ui(gui):
                         callback=lambda s, a, u: gui.on_set_all_viewers_image(u),
                         user_data=vs_id,
                     )
-                    build_beginner_tooltip(
-                        btn_all, "Show this image in all 4 viewers", gui
+                    build_tooltip(
+                        btn_all,
+                        "Show this image in all 4 viewers",
+                        gui,
+                        always_on=True,
                     )
 
                     btn_save = dpg.add_button(
-                        label="\uf0c7",
+                        label=ICON_SAVE,
                         width=20,
                         callback=lambda s, a, u: gui.on_quick_save_image_clicked(u),
                         user_data=vs_id,
                     )
-                    build_beginner_tooltip(btn_save, "Save image to current file", gui)
+                    build_tooltip(
+                        btn_save,
+                        "Save image to current file",
+                        gui,
+                        always_on=True,
+                    )
 
                     btn_save_as = dpg.add_button(
-                        label="\uf019",
+                        label=ICON_SAVE_AS,
                         width=20,
                         callback=lambda s, a, u: gui.on_save_image_clicked(u),
                         user_data=vs_id,
                     )
-                    build_beginner_tooltip(btn_save_as, "Save image as...", gui)
+                    build_tooltip(btn_save_as, "Save image as...", gui, always_on=True)
 
                     btn_reload = dpg.add_button(
                         label="\uf01e",
@@ -281,7 +289,9 @@ def refresh_image_list_ui(gui):
                         callback=lambda s, a, u: gui.controller.reload_image(u),
                         user_data=vs_id,
                     )
-                    build_beginner_tooltip(btn_reload, "Reload image from disk", gui)
+                    build_tooltip(
+                        btn_reload, "Reload image from disk", gui, always_on=True
+                    )
 
                     btn_close = dpg.add_button(
                         label="\uf00d",
@@ -289,11 +299,15 @@ def refresh_image_list_ui(gui):
                         callback=lambda s, a, u: gui.controller.file.close_image(u),
                         user_data=vs_id,
                     )
-                    build_beginner_tooltip(btn_close, "Close image", gui)
+                    build_tooltip(btn_close, "Close image", gui, always_on=True)
 
                     for btn in [btn_all, btn_save, btn_save_as, btn_reload, btn_close]:
                         if dpg.does_item_exist("icon_font_tag"):
                             dpg.bind_item_font(btn, "icon_font_tag")
+                        if dpg.does_item_exist("icon_button_theme"):
+                            dpg.bind_item_theme(btn, "icon_button_theme")
+                    if dpg.does_item_exist("delete_button_theme"):
+                        dpg.bind_item_theme(btn_close, "delete_button_theme")
 
                     if vs.volume.num_timepoints > 1:
                         dpg.add_spacer(width=5)
@@ -315,25 +329,14 @@ def refresh_image_list_ui(gui):
                         )
                         dpg.add_text(f"/ {vs.volume.num_timepoints}")
 
-                    if dpg.does_item_exist("icon_font_tag"):
-                        dpg.bind_item_font(btn_all, "icon_font_tag")
-                        dpg.bind_item_font(btn_save, "icon_font_tag")
-                        dpg.bind_item_font(btn_reload, "icon_font_tag")
-                        dpg.bind_item_font(btn_close, "icon_font_tag")
-                    if dpg.does_item_exist("delete_button_theme"):
-                        dpg.bind_item_theme(btn_close, "delete_button_theme")
-                    if dpg.does_item_exist("icon_button_theme"):
-                        dpg.bind_item_theme(btn_all, "icon_button_theme")
-                        dpg.bind_item_theme(btn_reload, "icon_button_theme")
-
                     build_help_button(
                         "The 4 checkboxes assign this image to the 4 viewers (V1: Top Left, V2: Top Right, V3: Bottom Left, V4: Bottom Right).",
                         gui,
                     )
 
         dpg.add_spacer(height=4, parent=container)
-        dpg.add_separator(parent=container)
-        dpg.add_spacer(height=4, parent=container)
+        if idx < len(items):  # between the images, none after the last one
+            build_horizontal_separator(parent=container)
 
     gui.refresh_recent_menu()
     if gui.context_viewer and gui.context_viewer.image_id:

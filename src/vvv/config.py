@@ -59,6 +59,8 @@ DEFAULT_SETTINGS = {
         "wl_drag_sensitivity": 2.0,
         "active_viewer_mode": "hybrid",
         "slice_slider_mode": "auto_hide",
+        "tooltip_delay": 0.6,
+        "tooltip_delay_beginner": 0.1,
     },
     "layout": {
         "window_width": 1400,

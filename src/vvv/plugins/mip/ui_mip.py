@@ -5,6 +5,7 @@ from vvv.ui.ui_components import (
     build_help_button,
     build_beginner_tooltip,
     build_stepped_slider,
+    FIELD_RIGHT_MARGIN,
 )
 from vvv.plugins.plugin_api import PluginTagMixin
 from vvv.utils import ViewMode
@@ -146,7 +147,7 @@ class MIPPluginUI(PluginTagMixin):
                 label="Save Rotation Movie",
                 tag=self._t("btn_save_movie"),
                 callback=self._c.on_save_movie_clicked,
-                width=-1,
+                width=-FIELD_RIGHT_MARGIN,
             )
             build_beginner_tooltip(
                 btn_movie,

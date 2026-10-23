@@ -3,6 +3,7 @@ import dearpygui.dearpygui as dpg
 import numpy as np
 from vvv.config import ROI_COLORS
 from vvv.ui.ui_notifications import show_loading_modal, hide_loading_modal
+from vvv.ui.ui_components import build_dialog_footer
 import logging
 
 logger = logging.getLogger(__name__)
@@ -351,6 +352,138 @@ def load_batch_rois_sequence(
     )
 
 
+def reload_rois_sequence(gui, controller, base_image_id, roi_ids):
+    """Reloads one or multiple ROIs from disk in parallel, updating the progress bar as files are read."""
+    if not roi_ids:
+        return
+
+    vs = controller.view_states.get(base_image_id)
+    if not vs or not vs.rois:
+        return
+
+    # Keep only ROIs that exist in the view state and have file paths
+    target_ids = []
+    for rid in roi_ids:
+        if rid in vs.rois:
+            vol = controller.volumes.get(rid)
+            if vol and getattr(vol, "file_paths", None):
+                target_ids.append(rid)
+
+    if not target_ids:
+        return
+
+    total = len(target_ids)
+    show_loading_modal("Reloading ROIs...", f"Preparing {total} ROI(s)...", progress=0.0)
+    for _ in range(3):
+        yield
+
+    processed_ids = set()
+    warnings = []
+    binary_tasks = []
+
+    # 1. Handle multi-ROI files (Label Maps, RT-Structs) first
+    for roi_id in target_ids:
+        if roi_id in processed_ids or roi_id not in vs.rois:
+            continue
+
+        rvol = controller.volumes.get(roi_id)
+        filepath = rvol.file_paths[0] if (rvol and rvol.file_paths) else None
+
+        batch = controller.roi.take_file_rois_for_reload(base_image_id, roi_id)
+        if batch is not None:
+            b_source_type, b_filepath, info = batch
+            processed_ids.add(roi_id)
+            if filepath:
+                for other_id in target_ids:
+                    ovol = controller.volumes.get(other_id)
+                    if ovol and ovol.file_paths and ovol.file_paths[0] == filepath:
+                        processed_ids.add(other_id)
+
+            if b_source_type == "Label Map":
+                yield from load_label_map_sequence(
+                    gui, controller, base_image_id, b_filepath, saved_preferences=info
+                )
+            elif info:
+                yield from load_rtstruct_sequence(
+                    gui, controller, base_image_id, b_filepath, info
+                )
+        else:
+            roi_state = vs.rois[roi_id]
+            binary_tasks.append({
+                "roi_id": roi_id,
+                "base_id": base_image_id,
+                "path": filepath,
+                "name": roi_state.name,
+                "color": list(roi_state.color),
+                "mode": getattr(roi_state, "source_mode", "Ignore BG (val)"),
+                "target_val": getattr(roi_state, "source_val", 0.0),
+            })
+            processed_ids.add(roi_id)
+
+    # 2. Reload all Binary Masks in parallel using thread pool
+    if binary_tasks:
+        done_count = [0]
+        n_bin = len(binary_tasks)
+
+        def _work(task):
+            return controller.roi.load_binary_mask(
+                task["base_id"],
+                task["path"],
+                name=task["name"],
+                color=task["color"],
+                mode=task["mode"],
+                target_val=task["target_val"],
+                defer=True,
+            )
+
+        def on_done(task, future):
+            roi_id = task["roi_id"]
+            try:
+                pending = future.result()
+            except Exception as e:
+                warnings.append(f"- Failed to reload {task['name']}: {e}")
+                pending = None
+
+            if pending is not None and roi_id in vs.rois:
+                old_vol = controller.volumes.get(roi_id)
+                new_vol = pending["vol"]
+                if old_vol:
+                    old_vol.sitk_image = new_vol.sitk_image
+                    old_vol.data = new_vol.data  # setter drops the derived caches
+                    old_vol.data_4d = new_vol.data_4d
+                    old_vol.roi_bbox = getattr(new_vol, "roi_bbox", None)
+                    old_vol.slices = getattr(new_vol, "slices", {})
+                    old_vol.update_mtime_tracker()
+                    old_vol._is_outdated = False
+
+                roi_state = vs.rois[roi_id]
+                roi_state.invalidate()
+
+            done_count[0] += 1
+            show_loading_modal(
+                "Reloading ROIs...",
+                f"Reloading ROIs ({done_count[0]}/{n_bin})",
+                progress=(done_count[0] / n_bin) if n_bin > 0 else 1.0,
+            )
+
+        yield from _run_parallel(
+            binary_tasks,
+            _work,
+            on_done,
+            max_workers=min(len(binary_tasks), 8),
+        )
+
+    # 3. Finalize and update viewers ONCE
+    show_loading_modal("Reloading ROIs...", "Applying changes...", progress=1.0)
+    yield
+
+    controller.ui_needs_refresh = True
+    controller.update_all_viewers_of_image(base_image_id)
+    yield from _handle_warnings_and_cleanup(
+        gui, warnings, "ROI Reload Warning", "Some ROIs failed to reload:"
+    )
+
+
 def _parse_label_map_json(raw_dict):
     """Parses a label-map sidecar JSON into (label_dict, color_dict).
 
@@ -619,15 +752,13 @@ def load_label_map_sequence(
                 "Loading them all may take some time. Do you want to continue?"
             )
             dpg.add_spacer(height=10)
-            with dpg.group(horizontal=True):
-                dpg.add_spacer(width=100)
-                dpg.add_button(
-                    label="Continue",
-                    width=100,
-                    callback=on_confirm,
-                    user_data=confirmed,
-                )
-                dpg.add_button(label="Cancel", width=100, callback=on_cancel)
+            build_dialog_footer(
+                [
+                    ("Cancel", lambda: on_cancel(None, None, confirmed)),
+                    ("Continue", lambda: on_confirm(None, None, confirmed)),
+                ],
+                keys_for=modal_tag,
+            )
 
         # Wait for user input
         while dpg.does_item_exist(modal_tag):
@@ -1204,6 +1335,7 @@ def load_workspace_sequence(gui, controller, filepath):
             ws = json.load(f)
     except Exception as e:
         gui.show_status_message(f"Failed to load workspace: {e}")
+        gui.workspace_image_ids = set()  # a reload must not close another one's images
         return
 
     display_name = "Reading Workspace Data..."
@@ -1521,6 +1653,9 @@ def load_workspace_sequence(gui, controller, filepath):
 
     controller.view_states.clear()
     controller.view_states.update(ordered_vs)
+    # The images of this workspace are numbered in its order (loaded in parallel)
+    loaded = set(id_map.values())
+    controller.renumber_images([v_id for v_id in ordered_vs if v_id in loaded])
 
     controller.volumes.clear()
     controller.volumes.update(ordered_vol)
@@ -1543,6 +1678,10 @@ def load_workspace_sequence(gui, controller, filepath):
     controller._flag_all_viewers_dirty()
 
     if gui:
+        # What a reload of this workspace replaces (other images are kept)
+        gui.workspace_image_ids = set(id_map.values()) | set(
+            legacy_overlay_map.values()
+        )
         for plugin in gui.plugins:
             if hasattr(plugin, "_controller") and hasattr(
                 plugin._controller, "clear_viewer_cache"
@@ -1641,8 +1780,9 @@ def create_boot_sequence(
         loaded_ids.append(base_id)
         id_to_group[base_id] = task.get("sync_group", 0)
 
-        if task.get("base_cmap"):
-            controller.view_states[base_id].display.colormap = task["base_cmap"]
+        if task.get("base_cmap") or task.get("min_threshold") is not None:
+            if task.get("base_cmap"):
+                controller.view_states[base_id].display.colormap = task["base_cmap"]
             if task.get("min_threshold") is not None:
                 controller.view_states[base_id].display.min_threshold = task[
                     "min_threshold"

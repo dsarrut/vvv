@@ -25,7 +25,7 @@ Switch to the **DVF** tab to customize vector rendering:
 * Renders directional 2D/3D glyph arrows showing direction and magnitude of motion.
 * **Subsampling (Step)**: Downsamples the arrow grid (e.g., show arrow every 4th or 8th voxel) to prevent visual clutter.
 * **Scale Factor**: Multiplies arrow lengths to emphasize subtle deformations.
-* **Color by Magnitude**: Colors arrows according to the Euclidean displacement norm:
+* **Color by Magnitude**: Colors arrows according to the Euclidean displacement norm, from yellow (small) to red (large) by default (both colors can be changed):
   $$\|\vec{u}\| = \sqrt{u_x^2 + u_y^2 + u_z^2}$$
 
 ### 2. Deformed Grid

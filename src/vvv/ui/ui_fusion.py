@@ -5,7 +5,13 @@ from vvv.ui.ui_components import (
     build_stepped_slider,
     build_help_button,
     build_beginner_tooltip,
+    label_row,
+    help_aware_width,
+    FIELD_RIGHT_MARGIN,
+    LABEL_COL_W as LABEL_W,
 )
+
+RIGHT = -FIELD_RIGHT_MARGIN
 from vvv.utils import compute_adaptive_step_and_speed
 from vvv.config import WL_PRESETS, COLORMAPS
 
@@ -16,6 +22,8 @@ class FusionUI:
     def __init__(self, gui, controller):
         self.gui = gui
         self.controller = controller
+        # Target combo: displayed item -> image id (the items are display names)
+        self._target_ids: dict[str, str] = {}
 
     @staticmethod
     def build_tab_fusion(gui):
@@ -23,17 +31,15 @@ class FusionUI:
         with dpg.group(tag="tab_fusion", show=False):
             build_section_title("Active Fusion", cfg_c["text_header"])
             with dpg.group(tag="image_fusion_group"):
-                with dpg.group(horizontal=True):
-                    dpg.add_text("Base   ")
+                with label_row("Base", LABEL_W):
                     dpg.add_text(
                         "-", tag="text_fusion_base_image", color=cfg_c["text_active"]
                     )
-                with dpg.group(horizontal=True):
-                    dpg.add_text("Target ")
+                with label_row("Target", LABEL_W):
                     dpg.add_combo(
                         ["None"],
                         tag="combo_fusion_select",
-                        width=-1,
+                        width=RIGHT,
                         callback=gui.fusion_ui.on_fusion_target_selected,
                     )
                 build_beginner_tooltip(
@@ -41,22 +47,20 @@ class FusionUI:
                     "Select the image to fuse as an overlay on top of the base image.",
                     gui,
                 )
-                with dpg.group(horizontal=True):
-                    dpg.add_text("Opacity", tag="text_fusion_opacity_label")
+                with label_row("Opacity", LABEL_W, tag="text_fusion_opacity_label"):
                     dpg.add_slider_float(
                         tag="slider_fusion_opacity",
                         min_value=0.0,
                         max_value=1.0,
-                        width=-1,
+                        width=RIGHT,
                         callback=gui.fusion_ui.on_fusion_opacity_changed,
                     )
 
-                with dpg.group(horizontal=True):
-                    dpg.add_text("Mode   ")
+                with label_row("Mode", LABEL_W):
                     combo = dpg.add_combo(
                         ["Alpha", "Registration", "Checkerboard", "DVF"],
                         tag="combo_fusion_mode",
-                        width=-30,
+                        width=help_aware_width("combo_fusion_mode", RIGHT, gui),
                         callback=gui.fusion_ui.on_fusion_mode_changed,
                     )
                     build_help_button(
@@ -73,10 +77,9 @@ class FusionUI:
                     show=False,
                     color=cfg_c.get("outdated", [255, 200, 50, 200]),
                 )
-                with dpg.group(
-                    horizontal=True, tag="group_fusion_checkerboard", show=False
+                with dpg.group(tag="group_fusion_checkerboard", show=False), label_row(
+                    "Square", LABEL_W
                 ):
-                    dpg.add_text("Square ")
                     dpg.add_slider_float(
                         tag="slider_fusion_chk_size",
                         min_value=1.0,
@@ -95,51 +98,52 @@ class FusionUI:
                 build_section_title("Fusion Image Intensity", cfg_c["text_header"])
                 dpg.add_spacer(height=2)
 
-                with dpg.group(horizontal=True):
-                    dpg.add_text("Preset: ")
+                with label_row("Preset", LABEL_W):
                     dpg.add_combo(
                         list(WL_PRESETS.keys()) + ["Custom"],
                         default_value="Custom",
                         tag="combo_fusion_wl_presets",
-                        width=-1,
+                        width=RIGHT,
                         callback=gui.fusion_ui.on_fusion_preset_changed,
                     )
 
                 build_stepped_slider(
-                    "Window:",
+                    "Window",
                     "drag_fusion_ww",
                     callback=gui.fusion_ui.on_fusion_ww_changed,
                     step_callback=gui.fusion_ui.on_step_button_clicked,
                     min_val=1e-5,
+                    gui=gui,
+                    label_col=LABEL_W,
                 )
                 build_stepped_slider(
-                    "Level: ",
+                    "Level",
                     "drag_fusion_wl",
                     callback=gui.fusion_ui.on_fusion_wl_changed,
                     step_callback=gui.fusion_ui.on_step_button_clicked,
+                    gui=gui,
+                    label_col=LABEL_W,
                 )
 
-                from vvv.config import COLORMAPS
-
-                with dpg.group(horizontal=True):
-                    dpg.add_text("Map:    ")
+                with label_row("Map", LABEL_W):
                     dpg.add_combo(
                         list(COLORMAPS.keys()),
                         default_value="Grayscale",
                         tag="combo_fusion_colormap",
-                        width=-1,
+                        width=RIGHT,
                         callback=gui.fusion_ui.on_fusion_colormap_changed,
                     )
 
                 build_stepped_slider(
-                    "Min Thr (Target):",
+                    "Min Thr",
                     "drag_fusion_threshold",
                     callback=gui.fusion_ui.on_fusion_threshold_changed,
                     step_callback=gui.fusion_ui.on_step_button_clicked,
                     has_checkbox=True,
                     check_tag="check_fusion_threshold",
                     check_cb=gui.fusion_ui.on_fusion_threshold_toggle,
-                    label_width=110,
+                    gui=gui,
+                    label_col=LABEL_W,
                 )
                 build_beginner_tooltip(
                     "drag_fusion_threshold",
@@ -223,14 +227,15 @@ class FusionUI:
 
         if dpg.does_item_exist("combo_fusion_select"):
             options = ["None"]
+            self._target_ids = {}
             for vid, ovs in list(self.controller.view_states.items()):
                 if vid != viewer.image_id:
                     # Filter out RGB as they cannot be used as overlays
                     if getattr(ovs.volume, "is_rgb", False):
                         continue
-                    # Use the new helper for the dropdown options
                     opt_name, _ = self.controller.get_image_display_name(vid)
                     options.append(opt_name)
+                    self._target_ids[opt_name] = vid
 
             dpg.configure_item("combo_fusion_select", items=options)
             dpg.configure_item("combo_fusion_select", enabled=True)
@@ -347,14 +352,13 @@ class FusionUI:
                     dpg.set_value("drag_fusion_threshold", thr)
                 thr_enabled = has_overlay and has_thr
                 dpg.configure_item("drag_fusion_threshold", enabled=thr_enabled)
-                if dpg.does_item_exist("btn_drag_fusion_threshold_minus"):
-                    dpg.configure_item(
-                        "btn_drag_fusion_threshold_minus", enabled=thr_enabled
-                    )
-                if dpg.does_item_exist("btn_drag_fusion_threshold_plus"):
-                    dpg.configure_item(
-                        "btn_drag_fusion_threshold_plus", enabled=thr_enabled
-                    )
+                # + / - stay usable while the threshold is off: a click turns it on
+                for btn in (
+                    "btn_drag_fusion_threshold_minus",
+                    "btn_drag_fusion_threshold_plus",
+                ):
+                    if dpg.does_item_exist(btn):
+                        dpg.configure_item(btn, enabled=has_overlay)
 
                 if has_overlay and ov_vs:
                     _, dynamic_speed, dpg_fmt = compute_adaptive_step_and_speed(
@@ -518,16 +522,7 @@ class FusionUI:
             has_thr = ov_vs.display.min_threshold is not None
             if dpg.get_value("check_fusion_threshold") != has_thr:
                 dpg.set_value("check_fusion_threshold", has_thr)
-                thr_enabled = has_thr
-                dpg.configure_item("drag_fusion_threshold", enabled=thr_enabled)
-                if dpg.does_item_exist("btn_drag_fusion_threshold_minus"):
-                    dpg.configure_item(
-                        "btn_drag_fusion_threshold_minus", enabled=thr_enabled
-                    )
-                if dpg.does_item_exist("btn_drag_fusion_threshold_plus"):
-                    dpg.configure_item(
-                        "btn_drag_fusion_threshold_plus", enabled=thr_enabled
-                    )
+                dpg.configure_item("drag_fusion_threshold", enabled=has_thr)
 
         # 3. Overlay Colormap
         if dpg.does_item_exist("combo_fusion_colormap") and not dpg.is_item_active(
@@ -732,14 +727,16 @@ class FusionUI:
             viewer.view_state.set_overlay(None, None)
             self.controller.ui_needs_refresh = True
         else:
-            target_id = None
-            for vid in list(self.controller.view_states.keys()):
-                opt_name, _ = self.controller.get_image_display_name(vid)
-                if opt_name == app_data:
-                    target_id = vid
-                    break
-
-            if not target_id:
+            # The items listed when the combo was filled (fallback: current names)
+            target_id = self._target_ids.get(app_data) or next(
+                (
+                    vid
+                    for vid in list(self.controller.view_states)
+                    if self.controller.get_image_display_name(vid)[0] == app_data
+                ),
+                None,
+            )
+            if target_id not in self.controller.volumes:
                 return
 
             target_vol = self.controller.volumes[target_id]

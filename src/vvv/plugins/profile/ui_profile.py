@@ -3,9 +3,21 @@ from vvv.ui.ui_components import (
     build_section_title,
     build_help_button,
     build_beginner_tooltip,
+    build_tooltip,
     build_renamable_input,
     build_delete_button,
+    build_icon_button,
+    ICON_ADD,
+    ICON_FIT,
+    ICON_EXPORT,
+    SMALL_BTN_W,
     build_name_filter_bar,
+    build_dialog_footer,
+    name_matches,
+    set_filter_count,
+    set_filter_invert_state,
+    set_sort_button,
+    sort_by_name,
 )
 from vvv.utils import ViewMode, fmt
 from .control_profile import ProfilePluginController
@@ -28,9 +40,12 @@ class ProfilePluginUI(PluginTagMixin):
             dpg.set_value(self._t("input_filter"), "")
         self._c.on_clear_filter_clicked()
 
-    def _bind_icon_font(self, item):
+    def _style_icon_button(self, item):
+        """Icon font + transparent icon button theme (black row background)."""
         if dpg.does_item_exist("icon_font_tag"):
             dpg.bind_item_font(item, "icon_font_tag")
+        if dpg.does_item_exist("icon_button_theme"):
+            dpg.bind_item_theme(item, "icon_button_theme")
 
     def create_ui(self, parent, api) -> None:
         cfg_c = api.get_ui_config()["colors"]
@@ -56,16 +71,27 @@ class ProfilePluginUI(PluginTagMixin):
             )
 
             with dpg.group(horizontal=True):
-                btn_add = dpg.add_button(
-                    label="Add Profile (P)",
+                build_icon_button(
+                    icon=ICON_ADD,
                     tag=self._t("btn_add"),
                     callback=self._c.on_btn_add_clicked,
+                    tooltip="Add a profile on the active slice (P)",
+                    api=api,
                 )
-                build_beginner_tooltip(
-                    btn_add,
-                    "Adds a new intensity profile line to the active image.\n"
-                    "You can also press P while hovering over a viewer.",
-                    api,
+                # Plot windows of the profiles of the active image
+                build_icon_button(
+                    icon="\uf08e",
+                    tag=self._t("btn_toggle_plots"),
+                    callback=self.on_toggle_all_plots_clicked,
+                    tooltip="Open / close the plot windows of all profiles",
+                    api=api,
+                )
+                build_icon_button(
+                    icon="\uf247",
+                    tag=self._t("btn_gather_plots"),
+                    callback=self.on_gather_plots_clicked,
+                    tooltip="Gather the open plot windows (bottom right of the window)",
+                    api=api,
                 )
                 build_help_button(
                     "Press P (configurable in Settings > Shortcuts) to add a new\n"
@@ -88,38 +114,6 @@ class ProfilePluginUI(PluginTagMixin):
                     api,
                 )
 
-            with dpg.group(horizontal=True):
-                btn_open_all = dpg.add_button(
-                    label="Open All",
-                    tag=self._t("btn_open_all"),
-                    callback=self.on_open_all_clicked,
-                )
-                build_beginner_tooltip(
-                    btn_open_all,
-                    "Opens intensity plot windows for all profiles of the active image.",
-                    api,
-                )
-                btn_close_all = dpg.add_button(
-                    label="Close All",
-                    tag=self._t("btn_close_all"),
-                    callback=self.on_close_all_clicked,
-                )
-                build_beginner_tooltip(
-                    btn_close_all,
-                    "Closes intensity plot windows for all profiles of the active image.",
-                    api,
-                )
-                btn_gather = dpg.add_button(
-                    label="Gather Plots",
-                    tag=self._t("btn_gather_plots"),
-                    callback=self.on_gather_plots_clicked,
-                )
-                build_beginner_tooltip(
-                    btn_gather,
-                    "Gathers all open profile plot windows around the bottom right quarter of the current window.",
-                    api,
-                )
-
             dpg.add_spacer(height=5)
 
             # Name Filter Bar
@@ -129,9 +123,13 @@ class ProfilePluginUI(PluginTagMixin):
                 btn_clear_tag=self._t("btn_clear_filter"),
                 on_filter_changed=self._on_filter_changed,
                 on_clear_clicked=self._on_clear_filter,
-                hint="Filter profiles by name...",
-                width=180,
                 api=api,
+                btn_invert_tag=self._t("btn_filter_invert"),
+                on_invert_clicked=self._c.on_toggle_filter_invert,
+                btn_sort_tag=self._t("btn_sort"),
+                on_sort_clicked=self._c.on_sort_profiles,
+                sort_tooltip="Sort profiles alphabetically",
+                count_tag=self._t("filter_count"),
             )
 
             dpg.add_spacer(height=5)
@@ -168,7 +166,7 @@ class ProfilePluginUI(PluginTagMixin):
                 dpg.set_value(chk_show, val_bool)
 
         # Update action buttons
-        for btn_name in ["btn_open_all", "btn_close_all", "btn_gather_plots"]:
+        for btn_name in ["btn_toggle_plots", "btn_gather_plots"]:
             btn = self._t(btn_name)
             if dpg.does_item_exist(btn):
                 dpg.configure_item(btn, enabled=active)
@@ -208,6 +206,12 @@ class ProfilePluginUI(PluginTagMixin):
             return
 
         filter_text = self._c.profile_filters.get(viewer.image_id, "") if has_image else ""
+        invert = (
+            self._c.profile_filter_inverts.get(viewer.image_id, False)
+            if has_image
+            else False
+        )
+        set_filter_invert_state(self._t("btn_filter_invert"), invert)
 
         # Resync the visible filter box to this image's own remembered filter —
         # otherwise switching images leaves stale text in the box while the
@@ -218,8 +222,11 @@ class ProfilePluginUI(PluginTagMixin):
         ):
             dpg.set_value(input_filter_tag, filter_text)
 
+        sort_order = self._c.profile_sort_orders.get(viewer.image_id, 0) if has_image else 0
+        set_sort_button(self._t("btn_sort"), sort_order)
+
         profile_key = (
-            (viewer.image_id, tuple(viewer.view_state.profiles.keys()))
+            (viewer.image_id, tuple(viewer.view_state.profiles.keys()), filter_text, invert, sort_order)
             if active
             else None
         )
@@ -231,12 +238,19 @@ class ProfilePluginUI(PluginTagMixin):
         dpg.delete_item(table_id, children_only=True, slot=1)
 
         if not active:
+            set_filter_count(self._t("filter_count"), 0, 0)
             return
 
-        filter_text = filter_text.lower()
-        for p_id, profile in viewer.view_state.profiles.items():
-            if filter_text and filter_text not in profile.name.lower():
-                continue
+        profiles = viewer.view_state.profiles
+        listed = [
+            (p_id, profile)
+            for p_id, profile in profiles.items()
+            if name_matches(profile.name, filter_text, invert)
+        ]
+        listed = sort_by_name(listed, sort_order, name=lambda x: x[1].name)
+
+        set_filter_count(self._t("filter_count"), len(listed), len(profiles))
+        for p_id, profile in listed:
             with dpg.table_row(parent=table_id):
                 # Color picker
                 dpg.add_color_edit(
@@ -261,47 +275,47 @@ class ProfilePluginUI(PluginTagMixin):
 
                 # Plot button
                 btn_plot = dpg.add_button(
-                    label="\uf08e", user_data=p_id, callback=self.on_plot_clicked
+                    label="\uf08e", width=20, user_data=p_id, callback=self.on_plot_clicked
                 )
-                self._bind_icon_font(btn_plot)
+                self._style_icon_button(btn_plot)
                 if api:
-                    build_beginner_tooltip(btn_plot, "Open intensity plot", api)
+                    build_tooltip(btn_plot, "Open intensity plot", api, always_on=True)
 
                 # Horizontal alignment
                 btn_h = dpg.add_button(
-                    label="\uf07e",
+                    label="\uf07e", width=20,
                     user_data=(p_id, "h"),
                     callback=self._c.on_align_clicked,
                 )
-                self._bind_icon_font(btn_h)
+                self._style_icon_button(btn_h)
                 if api:
-                    build_beginner_tooltip(btn_h, "Align purely horizontal on current slice", api)
+                    build_tooltip(btn_h, "Align purely horizontal on current slice", api, always_on=True)
 
                 # Vertical alignment
                 btn_v = dpg.add_button(
-                    label="\uf07d",
+                    label="\uf07d", width=20,
                     user_data=(p_id, "v"),
                     callback=self._c.on_align_clicked,
                 )
-                self._bind_icon_font(btn_v)
+                self._style_icon_button(btn_v)
                 if api:
-                    build_beginner_tooltip(btn_v, "Align purely vertical on current slice", api)
+                    build_tooltip(btn_v, "Align purely vertical on current slice", api, always_on=True)
 
                 # Pixel snap
                 btn_snap = dpg.add_button(
-                    label="\uf076", user_data=p_id, callback=self._c.on_snap_clicked
+                    label="\uf076", width=20, user_data=p_id, callback=self._c.on_snap_clicked
                 )
-                self._bind_icon_font(btn_snap)
+                self._style_icon_button(btn_snap)
                 if api:
-                    build_beginner_tooltip(btn_snap, "Snap endpoints to closest pixel center", api)
+                    build_tooltip(btn_snap, "Snap endpoints to closest pixel center", api, always_on=True)
 
                 # Goto button
                 btn_goto = dpg.add_button(
-                    label="\uf05b", user_data=p_id, callback=self._c.on_goto_clicked
+                    label="\uf05b", width=20, user_data=p_id, callback=self._c.on_goto_clicked
                 )
-                self._bind_icon_font(btn_goto)
+                self._style_icon_button(btn_goto)
                 if api:
-                    build_beginner_tooltip(btn_goto, "Center camera on this profile", api)
+                    build_tooltip(btn_goto, "Center camera on this profile", api, always_on=True)
 
                 # Delete icon
                 build_delete_button(
@@ -338,6 +352,22 @@ class ProfilePluginUI(PluginTagMixin):
             win_tag = self._t(f"plot_win_{p_id}")
             if not dpg.does_item_exist(win_tag):
                 self.on_plot_clicked(None, None, p_id)
+
+    def on_toggle_all_plots_clicked(self, sender=None, app_data=None, user_data=None):
+        """Closes the plot windows if any is open, else opens them all (like
+        the ROI statistics windows)."""
+        api = self._c._api
+        viewer = api.get_active_viewer() if api else None
+        if not viewer or not viewer.view_state:
+            return
+        any_open = any(
+            dpg.does_item_exist(self._t(f"plot_win_{p_id}"))
+            for p_id in viewer.view_state.profiles
+        )
+        if any_open:
+            self.on_close_all_clicked(sender, app_data, user_data)
+        else:
+            self.on_open_all_clicked(sender, app_data, user_data)
 
     def on_close_all_clicked(self, sender, app_data, user_data):
         api = self._c._api
@@ -461,75 +491,75 @@ class ProfilePluginUI(PluginTagMixin):
 
             # 1. Plot Toggle (Closes current)
             btn_plot = dpg.add_button(
-                label="\uf08e", user_data=p_id, callback=self.on_plot_clicked
+                label="\uf08e", width=20, user_data=p_id, callback=self.on_plot_clicked
             )
-            self._bind_icon_font(btn_plot)
+            self._style_icon_button(btn_plot)
             if api:
-                build_beginner_tooltip(btn_plot, "Close plot window", api)
+                build_tooltip(btn_plot, "Close plot window", api, always_on=True)
 
             # 2. Alignment
             btn_h = dpg.add_button(
-                label="\uf07e", user_data=(p_id, "h"), callback=self._c.on_align_clicked
+                label="\uf07e", width=20, user_data=(p_id, "h"), callback=self._c.on_align_clicked
             )
             btn_v = dpg.add_button(
-                label="\uf07d", user_data=(p_id, "v"), callback=self._c.on_align_clicked
+                label="\uf07d", width=20, user_data=(p_id, "v"), callback=self._c.on_align_clicked
             )
-            self._bind_icon_font(btn_h)
-            self._bind_icon_font(btn_v)
+            self._style_icon_button(btn_h)
+            self._style_icon_button(btn_v)
             if api:
-                build_beginner_tooltip(btn_h, "Align purely horizontal", api)
-                build_beginner_tooltip(btn_v, "Align purely vertical", api)
+                build_tooltip(btn_h, "Align purely horizontal", api, always_on=True)
+                build_tooltip(btn_v, "Align purely vertical", api, always_on=True)
 
             # 2b. Snap
             btn_snap = dpg.add_button(
-                label="\uf076", user_data=p_id, callback=self._c.on_snap_clicked
+                label="\uf076", width=20, user_data=p_id, callback=self._c.on_snap_clicked
             )
-            self._bind_icon_font(btn_snap)
+            self._style_icon_button(btn_snap)
             if api:
-                build_beginner_tooltip(btn_snap, "Snap to pixel center", api)
+                build_tooltip(btn_snap, "Snap to pixel center", api, always_on=True)
 
             # 3. Goto
             btn_goto = dpg.add_button(
-                label="\uf05b", callback=self._c.on_goto_clicked, user_data=p_id
+                label="\uf05b", width=20, callback=self._c.on_goto_clicked, user_data=p_id
             )
-            self._bind_icon_font(btn_goto)
+            self._style_icon_button(btn_goto)
             if api:
-                build_beginner_tooltip(btn_goto, "Center camera on profile", api)
+                build_tooltip(btn_goto, "Center camera on profile", api, always_on=True)
 
             # 4. Slice Navigation
             btn_prev = dpg.add_button(
-                label="\uf062",
+                label="\uf062", width=20,
                 user_data=(p_id, -1),
                 callback=self._c.on_change_slice_clicked,
             )
             btn_next = dpg.add_button(
-                label="\uf063",
+                label="\uf063", width=20,
                 user_data=(p_id, 1),
                 callback=self._c.on_change_slice_clicked,
             )
-            self._bind_icon_font(btn_prev)
-            self._bind_icon_font(btn_next)
+            self._style_icon_button(btn_prev)
+            self._style_icon_button(btn_next)
             if api:
-                build_beginner_tooltip(btn_prev, "Move profile to previous slice", api)
-                build_beginner_tooltip(btn_next, "Move profile to next slice", api)
+                build_tooltip(btn_prev, "Move profile to previous slice", api, always_on=True)
+                build_tooltip(btn_next, "Move profile to next slice", api, always_on=True)
 
-            # 5. Delete
-            btn_del = dpg.add_button(
-                label="\uf00d", user_data=p_id, callback=self._c.on_delete_clicked
+            # 5. Copy
+            btn_copy = dpg.add_button(
+                label="\uf0c5", width=20, user_data=p_id, callback=self.on_copy_profile_clicked
             )
-            self._bind_icon_font(btn_del)
+            self._style_icon_button(btn_copy)
+            if api:
+                build_tooltip(btn_copy, "Copy profile to another image", api, always_on=True)
+
+            # 6. Delete (last)
+            btn_del = dpg.add_button(
+                label="\uf00d", width=20, user_data=p_id, callback=self._c.on_delete_clicked
+            )
+            self._style_icon_button(btn_del)
             if dpg.does_item_exist("delete_button_theme"):
                 dpg.bind_item_theme(btn_del, "delete_button_theme")
             if api:
-                build_beginner_tooltip(btn_del, "Delete profile", api)
-
-            # 6. Copy
-            btn_copy = dpg.add_button(
-                label="\uf0c5", user_data=p_id, callback=self.on_copy_profile_clicked
-            )
-            self._bind_icon_font(btn_copy)
-            if api:
-                build_beginner_tooltip(btn_copy, "Copy profile to another image", api)
+                build_tooltip(btn_del, "Delete profile", api, always_on=True)
 
             build_help_button(
                 "Toolbar buttons (left to right):\n"
@@ -595,27 +625,32 @@ class ProfilePluginUI(PluginTagMixin):
 
         dpg.add_spacer(height=5)
         with dpg.group(horizontal=True):
-            dpg.add_button(
-                label="Fit Plot",
+            build_icon_button(
+                icon=ICON_FIT,
                 user_data=profile.id,
                 callback=self.on_fit_plot_clicked,
+                tooltip="Fit the plot to the data",
+                api=self._c._api,
             )
+            # Shows the current Y scale; a click switches it
             dpg.add_button(
-                label="Linear / Log",
+                label="Log" if getattr(profile, "use_log", False) else "Lin",
+                width=SMALL_BTN_W,
                 user_data=profile.id,
                 callback=self._c.on_toggle_log_clicked,
             )
-            dpg.add_button(
-                label="Export JSON",
-                width=-1,
+            build_icon_button(
+                icon=ICON_EXPORT,
                 callback=self._c.on_export_profile_clicked,
                 user_data=profile.id,
+                tooltip="Export the profile data to a JSON file...",
+                api=self._c._api,
             )
             build_help_button(
-                "Fit Plot    : Auto-scales both axes to the current data range\n"
-                "Linear / Log: Toggles the Y axis between linear and log scale\n"
-                "Export JSON : Saves the full profile data (distance, intensity,\n"
-                "              physical coordinates, voxel indices) to a JSON file\n\n"
+                "Fit : Auto-scales both axes to the current data range\n"
+                "Lin / Log : the Y axis scale (click to switch)\n"
+                "Export : Saves the full profile data (distance, intensity,\n"
+                "         physical coordinates, voxel indices) to a JSON file\n\n"
                 "P1 / P2 (mm): The 3D physical coordinates of each endpoint.\n"
                 "              You can type values directly to reposition precisely.",
                 self._c._api,
@@ -824,23 +859,19 @@ class ProfilePluginUI(PluginTagMixin):
                 width=-1,
             )
             dpg.add_spacer(height=5)
-            with dpg.group(horizontal=True):
-                dpg.add_button(
-                    label="Copy",
-                    width=100,
-                    callback=self.on_copy_confirm_clicked,
-                    user_data={
-                        "profile": profile,
-                        "other_images": other_images,
-                        "combo_tag": combo_tag,
-                        "modal_tag": modal_tag,
-                    },
-                )
-                dpg.add_button(
-                    label="Cancel",
-                    width=100,
-                    callback=lambda: dpg.delete_item(modal_tag),
-                )
+            copy_data = {
+                "profile": profile,
+                "other_images": other_images,
+                "combo_tag": combo_tag,
+                "modal_tag": modal_tag,
+            }
+            build_dialog_footer(
+                [
+                    ("Cancel", lambda: dpg.delete_item(modal_tag)),
+                    ("Copy", lambda: self.on_copy_confirm_clicked(None, None, copy_data)),
+                ],
+                keys_for=modal_tag,
+            )
 
     def on_copy_confirm_clicked(self, sender, app_data, user_data):
         profile = user_data["profile"]

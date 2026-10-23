@@ -2,8 +2,6 @@ import sys
 from typing import Any
 import os
 
-import json
-import shlex
 import time
 import inspect
 import threading
@@ -23,6 +21,11 @@ from vvv.ui.ui_components import (
     build_help_button,
     build_renamable_input,
     build_beginner_tooltip,
+    build_tooltip,
+    apply_help_field_widths,
+    LIST_BOTTOM_H,
+    build_collapsible_title,
+    set_title_folded,
 )
 from vvv.ui.ui_sync import build_tab_sync, refresh_sync_ui
 from vvv.ui.file_dialog import open_file_dialog, save_file_dialog
@@ -48,12 +51,18 @@ from vvv.ui.ui_drop import install_os_drop, cleanup_os_drop
 from vvv.ui.ui_workspace import build_workspace_nav_icons
 from vvv.ui.ui_debug import DebugOverlay
 from vvv.ui.ui_help import show_help_window
-from vvv.ui.render_strategy import GL_NEAREST_SUPPORTED
+from vvv.ui.ui_menu import build_menu_bar, refresh_recent_menu, refresh_rendering_menu
 from vvv.maths.image import fast_colorize_compiling_for
 from vvv.ui.ui_capture import capture_whole_window, copy_image_to_clipboard, save_screenshot_to_file
 import logging
 
 logger = logging.getLogger(__name__)
+
+# Side panels: height of a folded panel (its title line), and the window
+# height below which the Crosshair panel starts folded (no choice saved yet)
+FOLDED_PANEL_H = 34
+AUTO_FOLD_BELOW_H = 800
+NAV_BTN_MIN_H = 26  # nav buttons shrink down to this on a short window
 
 _POSITIONAL_KINDS = (
     inspect.Parameter.POSITIONAL_ONLY,
@@ -84,12 +93,20 @@ class MainGUI:
         self._main_thread_lock = threading.Lock()
         self.status_message_expire_time = float("inf")
         self.image_label_tags = {}
+        # Folded side panels ("av": Active Viewer, "ch": Crosshair); None in the
+        # settings = no choice made yet (see auto_fold_panels)
+        saved = self.controller.settings.data.get("layout", {}).get("folded_panels")
+        self.folded_panels = set(saved or [])
         self.sync_label_tags = {}
         self.current_workspace_path: str | None = None
+        # Images loaded (or saved) by the current workspace: a reload replaces them
+        self.workspace_image_ids: set = set()
         self.is_beginner_mode = bool(
             self.controller.settings.data.get("behavior", {}).get("beginner_mode", False)
         )
         self.beginner_tags = []
+        self.icon_tooltip_tags = []
+        self.tooltip_parent_map = {}
         self.active_tab = "tab_images"
         self.active_layout = "4"
         self.last_tab_for_image: dict[str, str] = {}
@@ -145,7 +162,7 @@ class MainGUI:
 
         # Go
         self.build_main_layout()
-        self._init_rendering_menu()
+        self.refresh_rendering_menu()
         self.register_handlers()
         self._update_viewer_help_texts()  # Initial update for viewer help texts
 
@@ -307,6 +324,15 @@ class MainGUI:
     def _safe_configure(self, tag, **kwargs):
         if dpg.does_item_exist(tag):
             dpg.configure_item(tag, **kwargs)
+        if "show" in kwargs and hasattr(self, "tooltip_parent_map"):
+            for tt_tag, p in self.tooltip_parent_map.items():
+                if p == tag and dpg.does_item_exist(tt_tag):
+                    is_icon = tt_tag in getattr(self, "icon_tooltip_tags", [])
+                    tt_show = kwargs["show"] if is_icon else (self.is_beginner_mode and kwargs["show"])
+                    try:
+                        dpg.configure_item(tt_tag, show=tt_show)
+                    except Exception:
+                        pass
 
     def _set_enabled(self, enabled, *tags):
         for tag in tags:
@@ -326,7 +352,7 @@ class MainGUI:
             no_title_bar=True,
             no_bring_to_front_on_focus=True,
         ):
-            self.build_menu_bar()
+            build_menu_bar(self)
 
             with dpg.item_handler_registry(tag="window_resize_handler"):
                 dpg.add_item_resize_handler(callback=lambda: self.on_window_resize())
@@ -342,208 +368,6 @@ class MainGUI:
             dpg.bind_item_theme(f"win_{tag}", "black_viewer_theme")
             if dpg.does_item_exist(f"win_slider_{tag}"):
                 dpg.bind_item_theme(f"win_slider_{tag}", "slider_overlay_theme")
-
-    def build_menu_bar(self):
-        """Builds the floating top menu bar."""
-        cfg_l = self.ui_cfg["layout"]
-
-        with dpg.child_window(
-            tag="menu_container",
-            height=cfg_l["menu_h"],
-            border=False,
-            menubar=True,
-            no_scrollbar=True,
-        ):
-            with dpg.menu_bar(tag="main_menu_bar"):
-                with dpg.menu(label="File"):
-                    dpg.add_menu_item(
-                        label="Open Image(s)...", callback=self.on_open_file_clicked
-                    )
-                    with dpg.menu(label="Open Recent...", tag="menu_recent_files"):
-                        pass
-                    menu_item_dicom = dpg.add_menu_item(
-                        label="Open DICOM Browser...",
-                        callback=self.open_dicom_plugin_window,
-                    )
-                    build_beginner_tooltip(
-                        menu_item_dicom,
-                        "Scan local directories for DICOM series and load them.",
-                        self,
-                    )
-                    dpg.add_menu_item(
-                        label="Open a 4D Sequence...",
-                        callback=self.on_open_4d_sequence_clicked,
-                    )
-
-                    dpg.add_separator()
-
-                    # Fetch the current setting state
-                    auto_save = self.controller.settings.data.get("behavior", {}).get(
-                        "auto_save_history", True
-                    )
-
-                    dpg.add_menu_item(
-                        label="Auto-Save History on Exit",
-                        check=True,
-                        default_value=auto_save,
-                        callback=self.on_toggle_auto_save,
-                    )
-
-                    dpg.add_separator()
-
-                    dpg.add_menu_item(
-                        label="Settings...",
-                        callback=lambda: self.settings_window.show(),
-                    )
-                    dpg.add_menu_item(label="Exit", callback=self.cleanup)
-
-                with dpg.menu(label="Workspace"):
-                    dpg.add_menu_item(
-                        label="Open Workspace...",
-                        callback=self.on_open_workspace_clicked,
-                    )
-                    dpg.add_menu_item(
-                        label="Save Workspace As...",
-                        callback=self.on_save_workspace_clicked,
-                    )
-                    dpg.add_menu_item(
-                        label="Save Workspace",
-                        tag="menu_save_workspace",
-                        show=False,
-                        callback=self.on_save_workspace_current_clicked,
-                    )
-
-                with dpg.menu(label="System", tag="menu_system"):
-                    with dpg.menu(label="Rendering Options"):
-                        dpg.add_menu_item(
-                            label="NN Interpolation  [K]",
-                            tag="menu_item_pixelated",
-                            check=True,
-                            callback=self.on_menu_pixelated_zoom_toggled,
-                        )
-                        dpg.add_separator()
-                        with dpg.menu(label="NN Options"):
-                            lazy_combo = dpg.add_combo(
-                                ["Auto", "On", "Off"],
-                                label="Lazy-Lin",
-                                tag="menu_combo_lazy_lin",
-                                width=100,
-                                callback=self.on_adv_rendering_changed,
-                            )
-                            build_beginner_tooltip(
-                                lazy_combo,
-                                "Auto: use bilinear during drag when fusion is active,\nrestore NN after interaction stops.\nOn/Off: force always on or always off.",
-                                self,
-                            )
-                            tex_combo = dpg.add_combo(
-                                ["Auto", "Single", "Dual"],
-                                label="Texture Mode",
-                                tag="menu_combo_single_tex",
-                                width=100,
-                                callback=self.on_adv_rendering_changed,
-                            )
-                            build_beginner_tooltip(
-                                tex_combo,
-                                "Auto: Single texture when fusion is active, Dual otherwise.\nSingle: CPU-blend base+overlay into one canvas texture.\nDual: separate textures for base and overlay.",
-                                self,
-                            )
-                            vox_combo = dpg.add_combo(
-                                ["Auto", "Native", "Resampled"],
-                                label="Voxel Mode",
-                                tag="menu_combo_native_vox",
-                                width=100,
-                                callback=self.on_adv_rendering_changed,
-                            )
-                            build_beginner_tooltip(
-                                vox_combo,
-                                "Auto/Native: overlay rendered at its true voxel resolution.\nResampled: overlay NN-scaled from the base image grid.",
-                                self,
-                            )
-                            if GL_NEAREST_SUPPORTED:
-                                gl_check = dpg.add_checkbox(
-                                    label="Hardware NN Filter",
-                                    tag="menu_check_gl_nearest",
-                                    callback=self.on_adv_rendering_changed,
-                                )
-                                build_beginner_tooltip(
-                                    gl_check,
-                                    "Use GPU GL_NEAREST for fast hardware NN upscaling.\nNot available on macOS.",
-                                    self,
-                                )
-                            from vvv.ui.render_strategy import _NUMBA_AVAILABLE
-
-                            if _NUMBA_AVAILABLE:
-                                nb_check = dpg.add_checkbox(
-                                    label="Numba Acceleration",
-                                    tag="menu_check_numba",
-                                    callback=self.on_adv_rendering_changed,
-                                )
-                                build_beginner_tooltip(
-                                    nb_check,
-                                    "Use Numba JIT for native voxel overlay rendering.\n~40x faster than NumPy for SW NN modes on macOS.\nDisable to fall back to NumPy (useful for debugging).",
-                                    self,
-                                )
-
-                dpg.add_spacer(width=20)
-                dpg.add_text(
-                    "",
-                    tag="global_status_text",
-                    color=self.ui_cfg["colors"]["text_status_ok"],
-                )
-
-                dpg.add_text(
-                    "",
-                    tag="active_image_path_text",
-                    color=self.ui_cfg["colors"]["text_dim"],
-                )
-                with dpg.tooltip("active_image_path_text"):
-                    dpg.add_text("", tag="active_image_path_tooltip_text")
-                with dpg.item_handler_registry(tag="active_image_path_click_handler"):
-                    dpg.add_item_clicked_handler(
-                        callback=self.on_active_image_path_clicked
-                    )
-                dpg.bind_item_handler_registry(
-                    "active_image_path_text", "active_image_path_click_handler"
-                )
-
-                # Define layout & screenshot buttons inside the menu_bar so they aren't clipped, but position them absolutely
-                btn_screenshot = dpg.add_button(
-                    label="\uf030",
-                    callback=self.on_copy_window_screenshot_clicked,
-                    tag="btn_screenshot",
-                )
-                btn_layout_4 = dpg.add_button(
-                    label="\uf009",
-                    callback=lambda: self.set_viewport_layout("4"),
-                    tag="btn_layout_4",
-                )
-                btn_layout_2 = dpg.add_button(
-                    label="\uf0db",
-                    callback=lambda: self.set_viewport_layout("2"),
-                    tag="btn_layout_2",
-                )
-                btn_layout_1 = dpg.add_button(
-                    label="\uf0c8",
-                    callback=lambda: self.set_viewport_layout("1"),
-                    tag="btn_layout_1",
-                )
-
-                for btn in [btn_screenshot, btn_layout_4, btn_layout_2, btn_layout_1]:
-                    if dpg.does_item_exist("icon_font_tag"):
-                        dpg.bind_item_font(btn, "icon_font_tag")
-                    if dpg.does_item_exist("icon_button_theme"):
-                        dpg.bind_item_theme(btn, "icon_button_theme")
-
-                build_beginner_tooltip(
-                    "btn_screenshot", "Copy Window Screenshot to Clipboard", self
-                )
-                build_beginner_tooltip("btn_layout_4", "4 Viewers Layout", self)
-                build_beginner_tooltip(
-                    "btn_layout_2", "2 Viewers (Left/Right) Layout", self
-                )
-                build_beginner_tooltip("btn_layout_1", "1 Viewer (Full) Layout", self)
-
-        dpg.bind_item_theme("menu_container", "floating_menu_theme")
 
     def build_sidebar(self):
         """Constructs the left side panel with the new Vertical Navigation."""
@@ -581,6 +405,7 @@ class MainGUI:
     def build_vertical_nav(self):
         """Creates the vertical tool buttons."""
         cfg_l = self.ui_cfg["layout"]
+        btn_h = getattr(self, "_nav_btn_h", cfg_l["nav_btn_h"])  # see _fit_nav_button_height
 
         if not dpg.does_item_exist("nav_panel"):
             return
@@ -630,14 +455,11 @@ class MainGUI:
                         label=name,
                         tag=f"nav_btn_{tag}",
                         width=-1,
-                        height=cfg_l["nav_btn_h"],
+                        height=btn_h,
                         user_data=tag,
                         callback=self.on_nav_clicked,
                     )
-                    dpg.bind_item_theme(btn, "theme_rounded_nav")
-                    is_active = tag == self.active_tab
-                    if is_active and dpg.does_item_exist("active_nav_button_theme"):
-                        dpg.bind_item_theme(btn, "active_nav_button_theme")
+                    self._bind_nav_theme(tag)
                     if tag in tooltip_texts:
                         build_beginner_tooltip(btn, tooltip_texts[tag], self)
 
@@ -649,12 +471,13 @@ class MainGUI:
                     label="\uf013",
                     tag="btn_settings",
                     width=-1,
-                    height=cfg_l["nav_btn_h"],
+                    height=btn_h,
                     callback=lambda: self.settings_window.show(),
                 )
                 dpg.bind_item_theme(btn_settings, "theme_rounded_nav")
                 if dpg.does_item_exist("icon_font_tag"):
                     dpg.bind_item_font(btn_settings, "icon_font_tag")
+                build_tooltip(btn_settings, "Settings", self, always_on=True)
 
                 with dpg.group(horizontal=True, horizontal_spacing=5):
                     init_theme = (
@@ -666,7 +489,7 @@ class MainGUI:
                         label="\uf77c",
                         tag="btn_beginner",
                         width=31,
-                        height=cfg_l["nav_btn_h"],
+                        height=btn_h,
                         callback=self.on_toggle_beginner_mode,
                     )
                     dpg.bind_item_theme(btn_beginner, init_theme)
@@ -674,17 +497,19 @@ class MainGUI:
                         dpg.bind_item_font(btn_beginner, "icon_font_18_tag")
                     elif dpg.does_item_exist("icon_font_tag"):
                         dpg.bind_item_font(btn_beginner, "icon_font_tag")
+                    build_tooltip(btn_beginner, "Toggle Beginner Mode", self, always_on=True)
 
                     btn_help = dpg.add_button(
                         label="\uf059",
                         tag="btn_help",
                         width=-1,
-                        height=cfg_l["nav_btn_h"],
+                        height=btn_h,
                         callback=self.show_help_window,
                     )
                     dpg.bind_item_theme(btn_help, "theme_rounded_nav")
                     if dpg.does_item_exist("icon_font_tag"):
                         dpg.bind_item_font(btn_help, "icon_font_tag")
+                    build_tooltip(btn_help, "Help & Documentation", self, always_on=True)
 
     def build_sidebar_top(self):
         """Builds the content containers without the native tab_bar."""
@@ -719,7 +544,13 @@ class MainGUI:
         ):
             with dpg.group(indent=cfg_l["left_inner_m"]):
                 dpg.add_spacer(height=5)
-                build_section_title("Active Viewer", cfg_c["text_header"])
+                build_collapsible_title(
+                    "Active Viewer",
+                    cfg_c["text_header"],
+                    "av_fold_arrow",
+                    lambda: self.toggle_panel_folded("av"),
+                    folded="av" in self.folded_panels,
+                )
                 with dpg.group(tag="image_info_group"):
                     # Store input tag with prefix 'input_info_name' so shortcuts are automatically suppressed by ui_interaction.py
                     def on_info_name_rename(sender, app_data, user_data):
@@ -728,11 +559,7 @@ class MainGUI:
                             val = dpg.get_value(sender)
                             if val is None:
                                 return
-                            new_name = val.strip()
-                            import re
-
-                            new_name = re.sub(r"\s*\*$", "", new_name)
-                            new_name = re.sub(r"^\(\d+\)\s*", "", new_name)
+                            new_name = val.strip()  # the field holds the name only
                             vol = self.controller.volumes.get(target_id)
                             if vol and new_name:
                                 vol.name = new_name
@@ -758,12 +585,14 @@ class MainGUI:
                         )
                         if dpg.does_item_exist("icon_font_tag"):
                             dpg.bind_item_font(btn_toggle, "icon_font_tag")
-                        build_beginner_tooltip(
+                        build_tooltip(
                             btn_toggle,
                             "Toggle between Base and Fusion image info",
                             self,
                             text_tag="text_tooltip_info_fusion",
+                            always_on=True,
                         )
+                        dpg.add_text("", tag="info_name_number")
                         dpg.add_input_text(
                             tag="input_info_name",
                             width=-1,
@@ -871,8 +700,8 @@ class MainGUI:
                                     callback=on_select_unit_preset,
                                     user_data=u_val,
                                 )
-                        build_beginner_tooltip(
-                            btn_preset, "Select a standard unit preset", self
+                        build_tooltip(
+                            btn_preset, "Select a standard unit preset", self, always_on=True
                         )
                         dpg.add_text("", tag="info_unit_source", color=dim_col)
 
@@ -886,6 +715,105 @@ class MainGUI:
                 dpg.add_spacer(height=5)
                 self.build_visibility_controls()
 
+    def _nav_applicable(self, tag):
+        """False for a tool (plugin with is_applicable) that does not apply to
+        the current image: its nav button is muted, still clickable."""
+        plugin = next((p for p in self.plugins if p.plugin_id == tag), None)
+        check = getattr(plugin, "is_applicable", None)
+        if check is None:
+            return True
+        try:
+            return bool(check(self.plugin_api))
+        except Exception:
+            return True
+
+    def _bind_nav_theme(self, tag):
+        btn = f"nav_btn_{tag}"
+        if not dpg.does_item_exist(btn):
+            return
+        if tag == getattr(self, "active_tab", None):
+            theme = "active_nav_button_theme"
+        elif not self._nav_applicable(tag):
+            theme = "theme_rounded_nav_muted"
+        else:
+            theme = "theme_rounded_nav"
+        if dpg.does_item_exist(theme):
+            dpg.bind_item_theme(btn, theme)
+
+    def _fit_nav_button_height(self, column_h):
+        """Nav button height so the tool buttons, the workspace icons and the
+        bottom buttons fit the column: nav_btn_h, down to NAV_BTN_MIN_H on a
+        short window. Measured from the last frame (0 before the first one)."""
+        cfg_h = self.ui_cfg["layout"]["nav_btn_h"]
+        cur = getattr(self, "_nav_btn_h", cfg_h)
+        top_now = dpg.get_item_rect_size("nav_top_group")[1] if dpg.does_item_exist("nav_top_group") else 0
+        n = len(getattr(self, "nav_items", []))
+        if not top_now or not n:
+            return cur
+        fixed = top_now - n * cur  # spacing + workspace icons
+        # top group + bottom group (2 rows + 8 px) + 8 px gap between them
+        fit = int((column_h - fixed - 16) // (n + 2))
+        h = max(NAV_BTN_MIN_H, min(cfg_h, fit))
+        if h != cur:
+            self._nav_btn_h = h
+            tags = [f"nav_btn_{t}" for _, t in self.nav_items]
+            for tag in tags + ["btn_settings", "btn_beginner", "btn_help"]:
+                if dpg.does_item_exist(tag):
+                    dpg.set_item_height(tag, h)
+        return h
+
+    def set_panel_folded(self, key, folded, save=True):
+        """Fold ("av" / "ch") a side panel to its title line; the tools panel
+        above gets the freed height."""
+        if folded:
+            self.folded_panels.add(key)
+        else:
+            self.folded_panels.discard(key)
+        set_title_folded(f"{key}_fold_arrow", folded)
+        if save:
+            self.controller.settings.data.setdefault("layout", {})["folded_panels"] = sorted(
+                self.folded_panels
+            )
+            self.controller.save_settings()
+        self.on_window_resize()
+
+    def toggle_panel_folded(self, key):
+        if key == "ch":
+            self._ch_auto_folded = False  # a manual choice: resizing leaves it
+        self.set_panel_folded(key, key not in self.folded_panels)
+
+    def auto_fold_panels(self, window_h, relayout=True):
+        """The Crosshair panel follows the window height: it folds when the
+        window becomes shorter than AUTO_FOLD_BELOW_H (the tools panel is not
+        squeezed) and unfolds when it grows back, if it was folded that way.
+        At start, a short window folds it unless a fold choice is saved.
+        Called on every resize; the automatic folds are not saved."""
+        short = window_h < AUTO_FOLD_BELOW_H
+        was_short = getattr(self, "_window_short", None)
+        self._window_short = short
+        if short == was_short:
+            return
+        if was_short is None:  # start
+            saved = self.controller.settings.data.get("layout", {}).get("folded_panels")
+            fold = short and saved is None
+        elif short:
+            fold = "ch" not in self.folded_panels
+        else:
+            fold = False
+            if not getattr(self, "_ch_auto_folded", False):
+                return
+        if fold:
+            self._ch_auto_folded = True
+            self.folded_panels.add("ch")
+        elif short:
+            return
+        else:
+            self._ch_auto_folded = False
+            self.folded_panels.discard("ch")
+        set_title_folded("ch_fold_arrow", "ch" in self.folded_panels)
+        if relayout:
+            self.on_window_resize()
+
     def build_sidebar_crosshair(self):
         cfg_c = self.ui_cfg["colors"]
         cfg_l = self.ui_cfg["layout"]
@@ -895,7 +823,13 @@ class MainGUI:
         ):
             with dpg.group(indent=cfg_l["left_inner_m"]):
                 dpg.add_spacer(height=5)
-                build_section_title("Crosshair", cfg_c["text_header"])
+                build_collapsible_title(
+                    "Crosshair",
+                    cfg_c["text_header"],
+                    "ch_fold_arrow",
+                    lambda: self.toggle_panel_folded("ch"),
+                    folded="ch" in self.folded_panels,
+                )
                 with dpg.group(tag="image_crosshair_group"):
                     self.create_labeled_field("Value", tag="info_val")
                     self.create_labeled_field("Voxel", tag="info_vox")
@@ -1272,114 +1206,10 @@ class MainGUI:
             roi_plugin._ui.refresh_rois_ui()
 
     def refresh_recent_menu(self):
-        if not dpg.does_item_exist("menu_recent_files"):
-            return
+        refresh_recent_menu(self)
 
-        dpg.delete_item("menu_recent_files", children_only=True)
-        recent = self.controller.settings.data.get("behavior", {}).get(
-            "recent_files", []
-        )
-
-        if not recent:
-            dpg.add_menu_item(
-                label="No recent files", parent="menu_recent_files", enabled=False
-            )
-            return
-
-        # Define an orange color for missing files (RGB: 255, 140, 0)
-        orange_color = [255, 140, 0, 255]
-
-        for path_str in recent:
-            # Safely attempt to decode DICOM lists
-            try:
-                path_obj = (
-                    json.loads(path_str) if path_str.startswith("[") else path_str
-                )
-            except Exception:
-                path_obj = path_str
-
-            # Resolve the path to handle robust user profile path fallback
-            path_obj = self.controller.resolve_recent_path(path_obj)
-
-            # Check if the file/directory actually exists on disk
-            exists = False
-            if isinstance(path_obj, list):
-                # For DICOM series, verify if at least the first file exists
-                exists = len(path_obj) > 0 and os.path.exists(path_obj[0])
-            elif isinstance(path_obj, str):
-                if path_obj.startswith("4D:"):
-                    import shlex
-
-                    try:
-                        path_for_shlex = (
-                            path_obj[3:].replace("\\", "\\\\")
-                            if os.name == "nt"
-                            else path_obj[3:]
-                        )
-                        tokens = shlex.split(path_for_shlex)
-                        # For 4D sequences, verify the first frame exists
-                        exists = len(tokens) > 0 and os.path.exists(tokens[0])
-                    except Exception:
-                        exists = False
-                else:
-                    exists = os.path.exists(path_obj)
-
-            # Create a clean display name
-            if isinstance(path_obj, list) and len(path_obj) > 0:
-                display_name = (
-                    os.path.basename(os.path.dirname(path_obj[0])) + " (DICOM Series)"
-                )
-                tooltip_path = "\n".join(path_obj)
-            elif isinstance(path_obj, str) and path_obj.startswith("4D:"):
-                import shlex
-
-                path_for_shlex = (
-                    path_obj[3:].replace("\\", "\\\\")
-                    if os.name == "nt"
-                    else path_obj[3:]
-                )
-                tokens = shlex.split(path_for_shlex)
-                display_name = (
-                    "4D: " + os.path.basename(tokens[0]) + "..."
-                    if tokens
-                    else "4D Sequence"
-                )
-                tooltip_path = path_obj
-            elif isinstance(path_obj, str):
-                display_name = os.path.basename(path_obj)
-                tooltip_path = path_obj
-            else:
-                display_name = str(path_obj)
-                tooltip_path = str(path_obj)
-
-            # Add a visual indicator suffix to the label if missing
-            if not exists:
-                display_name += " (Missing)"
-
-            # 1. Create the unique menu item
-            item = dpg.add_menu_item(
-                label=display_name,
-                parent="menu_recent_files",
-                user_data=path_obj,
-                callback=self.on_recent_file_clicked,
-            )
-
-            # 2. If the file doesn't exist, bind a custom orange color theme to this specific item
-            if not exists:
-                with dpg.theme() as missing_item_theme:
-                    with dpg.theme_component(dpg.mvMenuItem):
-                        dpg.add_theme_color(dpg.mvThemeCol_Text, orange_color)
-                dpg.bind_item_theme(item, missing_item_theme)
-
-            # 3. Attach the tooltip showing the absolute path
-            build_beginner_tooltip(item, tooltip_path, self)
-
-        dpg.add_separator(parent="menu_recent_files")
-        dpg.add_menu_item(
-            label="Clear Recent Files",
-            parent="menu_recent_files",
-            callback=self.on_clear_recent_clicked,
-        )
+    def refresh_rendering_menu(self):
+        refresh_rendering_menu(self)
 
     def pan_viewers_by_delta(self, vs_id, dtx, dty, dtz):
         """Translates the 2D cameras to perfectly match the physical 3D shift."""
@@ -1540,12 +1370,11 @@ class MainGUI:
             if not dpg.is_item_focused("input_info_name") and not dpg.is_item_active(
                 "input_info_name"
             ):
-                name_str, _ = self.controller.get_image_display_name(target_id)
-                # Strip trailing outdated stars if they are present in display name
-                import re
-
-                name_clean = re.sub(r"\s*\*$", "", name_str)
-                dpg.set_value("input_info_name", name_clean)
+                dpg.set_value("input_info_name", self.controller.get_image_name(target_id))
+        if dpg.does_item_exist("info_name_number"):
+            dpg.set_value(
+                "info_name_number", f"({self.controller.image_number(target_id) or '?'})"
+            )
         dpg.set_value("info_name_label", viewer.tag)
         dpg.set_value("info_voxel_type", f"{vol.pixel_type}")
         if dpg.does_item_exist("input_info_unit"):
@@ -1725,11 +1554,19 @@ class MainGUI:
         valid_tags = []
         for tag in self.beginner_tags:
             if dpg.does_item_exist(tag):
-                self._safe_configure(tag, show=self.is_beginner_mode)
+                parent = getattr(self, "tooltip_parent_map", {}).get(tag)
+                p_show = (
+                    bool(dpg.get_item_configuration(parent).get("show", True))
+                    if (parent and dpg.does_item_exist(parent))
+                    else True
+                )
+                self._safe_configure(tag, show=(self.is_beginner_mode and p_show))
                 valid_tags.append(tag)
         self.beginner_tags = valid_tags
 
-        w = -100 if self.is_beginner_mode else -60
+        self.update_tooltip_delays()
+
+        apply_help_field_widths(self.is_beginner_mode)
 
         if self.is_beginner_mode:
             dpg.bind_item_theme(sender, "theme_beginner_active")
@@ -1751,6 +1588,28 @@ class MainGUI:
             f"Beginner Mode {'ON' if self.is_beginner_mode else 'OFF'}"
         )
 
+    def update_tooltip_delays(self):
+        """Updates activation delays on all registered icon tooltips."""
+        from vvv.ui.ui_components import get_tooltip_delay
+
+        delay = get_tooltip_delay(self, always_on=True)
+        valid_icon_tags = []
+        for tag in getattr(self, "icon_tooltip_tags", []):
+            if dpg.does_item_exist(tag):
+                try:
+                    parent = getattr(self, "tooltip_parent_map", {}).get(tag)
+                    if parent and dpg.does_item_exist(parent):
+                        p_show = bool(
+                            dpg.get_item_configuration(parent).get("show", True)
+                        )
+                        dpg.configure_item(tag, delay=delay, show=p_show)
+                    else:
+                        dpg.configure_item(tag, delay=delay)
+                except Exception:
+                    pass
+                valid_icon_tags.append(tag)
+        self.icon_tooltip_tags = valid_icon_tags
+
     def on_nav_clicked(self, sender, app_data, user_data):
         """Replaces on_tab_changed. Handles hiding/showing the content groups."""
         target_tab_tag = user_data
@@ -1761,14 +1620,7 @@ class MainGUI:
 
         # 1. Update Button Highlighting & Show/Hide Content
         for name, tag in self.nav_items:
-            btn_tag = f"nav_btn_{tag}"
-            if dpg.does_item_exist(btn_tag):
-                if tag == target_tab_tag and dpg.does_item_exist(
-                    "active_nav_button_theme"
-                ):
-                    dpg.bind_item_theme(btn_tag, "active_nav_button_theme")
-                else:
-                    dpg.bind_item_theme(btn_tag, "theme_rounded_nav")
+            self._bind_nav_theme(tag)
             self._safe_configure(tag, show=(tag == target_tab_tag))
 
         # 2. Trigger the old UI layout logic
@@ -1921,6 +1773,7 @@ class MainGUI:
 
             cfg = self.ui_cfg["layout"]
             m_t, m_l, m_r = cfg["menu_m_top"], cfg["menu_m_left"], cfg["menu_m_right"]
+            self.auto_fold_panels(window_h, relayout=False)  # before the layout below
 
             if dpg.does_item_exist("menu_container"):
                 dpg.set_item_pos("menu_container", [m_l, m_t])
@@ -1960,16 +1813,16 @@ class MainGUI:
                             "nav_top_group", [4, 1]
                         )  # 1px perfect nudge down
 
-                    bot_h = (
-                        2 * cfg["nav_btn_h"]
-                    ) + 8  # 2 rows of buttons (35px) + 1 gap (8px)
+                    btn_h = self._fit_nav_button_height(l_h)
+                    bot_h = 2 * btn_h + 8  # 2 rows of buttons + 1 gap (8px)
                     if dpg.does_item_exist("nav_bot_group"):
                         dpg.set_item_pos("nav_bot_group", [4, l_h - bot_h])
 
                 # --- THE COMPUTED LAYOUT ENGINE ---
                 hide_av = getattr(self, "_hide_av_panel", False)
-                ch_h = cfg["panel_ch_h"] + 15
-                av_h = cfg["panel_av_h"]
+                folded = getattr(self, "folded_panels", set())
+                ch_h = FOLDED_PANEL_H if "ch" in folded else cfg["panel_ch_h"]
+                av_h = FOLDED_PANEL_H if "av" in folded else cfg["panel_av_h"]
                 gap = cfg.get("sidebar_gap", 5)
 
                 # Size the Tool Column
@@ -2008,33 +1861,18 @@ class MainGUI:
                 # Recalculate inner width for all the sliders to adapt!
                 inner_w = col_w - cfg["left_inner_m"] - cfg["right_inner_m"]
 
-                if dpg.does_item_exist("roi_list_window"):
-                    detail_shown = dpg.does_item_exist(
-                        "roi_detail_header_group"
-                    ) and dpg.is_item_shown("roi_detail_header_group")
-                    detail_h = cfg.get("roi_detail_h", 300) if detail_shown else 0
-
-                    # 250px provides padding for the top controls and the "Export" button below the list
-                    list_h = top_h - detail_h - 250
-
-                    dpg.set_item_width("roi_list_window", inner_w)
-                    dpg.set_item_height("roi_list_window", max(50, int(list_h)))
-
-                    if dpg.does_item_exist("roi_detail_window"):
-                        dpg.set_item_height("roi_detail_window", max(10, detail_h - 30))
-
                 if dpg.does_item_exist("roi_plugin_roi_list_window"):
                     detail_shown = dpg.does_item_exist(
                         "roi_plugin_roi_detail_header_group"
                     ) and dpg.is_item_shown("roi_plugin_roi_detail_header_group")
                     detail_h = cfg.get("roi_detail_h", 300) if detail_shown else 0
 
-                    # 250px provides padding for the top controls and the "Export" button below the list
-                    list_h = top_h - detail_h - 250
-
+                    # Negative height: the list fills the panel down to its
+                    # bottom, minus the detail panel and the separator below
+                    # the list (whatever the rows above it)
                     dpg.set_item_width("roi_plugin_roi_list_window", inner_w)
                     dpg.set_item_height(
-                        "roi_plugin_roi_list_window", max(50, int(list_h))
+                        "roi_plugin_roi_list_window", -(detail_h + LIST_BOTTOM_H)
                     )
 
                     if dpg.does_item_exist("roi_plugin_roi_detail_window"):
@@ -2353,17 +2191,16 @@ class MainGUI:
         if not app_data:
             return
         file_paths = list(app_data) if not isinstance(app_data, list) else app_data
-        workspace_files = [p for p in file_paths if p.endswith(".vvw")]
-        image_files = [p for p in file_paths if not p.endswith(".vvw")]
-        if workspace_files:
-            path = workspace_files[0]
-            self.current_workspace_path = path
-            self.refresh_workspace_bar()
-            self.tasks.append(load_workspace_sequence(self, self.controller, path))
+        workspace_files = [p for p in file_paths if p.lower().endswith(".vvw")]
+        image_files = [p for p in file_paths if not p.lower().endswith(".vvw")]
+        # Images first, then each workspace in order (tasks run one after the
+        # other): the last workspace takes precedence, the others keep their images
         if image_files:
             self.tasks.append(
                 load_batch_images_sequence(self, self.controller, image_files)
             )
+        for path in workspace_files:
+            self.tasks.append(self.load_workspace_sequence(path))
 
     def open_dicom_plugin_window(self):
         dicom_plugin = next(
@@ -2424,11 +2261,6 @@ class MainGUI:
             dpg.set_value(sender, False)
 
         self.controller.ui_needs_refresh = True
-
-    def on_toggle_auto_save(self, sender, app_data, user_data):
-        self.controller.settings.data.setdefault("behavior", {})[
-            "auto_save_history"
-        ] = app_data
 
     def on_quick_save_image_clicked(self, vs_id):
         vol = self.controller.volumes.get(vs_id)
@@ -2492,6 +2324,7 @@ class MainGUI:
 
             self.controller.file.save_workspace(file_path, self.workspace_view())
             self.current_workspace_path = file_path
+            self.workspace_image_ids = set(self.controller.view_states)
             self.refresh_workspace_bar()
             self.show_status_message(f"Workspace saved: {os.path.basename(file_path)}")
 
@@ -2510,6 +2343,7 @@ class MainGUI:
     ):
         if self.current_workspace_path:
             self.controller.file.save_workspace(self.current_workspace_path, self.workspace_view())
+            self.workspace_image_ids = set(self.controller.view_states)
             self.refresh_workspace_bar()
             self.show_status_message(
                 f"Workspace saved: {os.path.basename(self.current_workspace_path)}"
@@ -2518,25 +2352,42 @@ class MainGUI:
         else:
             self.on_save_workspace_clicked()
 
+    def on_reload_workspace_clicked(self, sender=None, app_data=None, user_data=None):
+        path = self.current_workspace_path
+        if not path:
+            return
+        if not os.path.exists(path):
+            self.show_status_message(
+                f"Workspace not found: {os.path.basename(path)}",
+                color=[255, 100, 100],
+            )
+            return
+        self.reload_workspace()
+
+    def reload_workspace(self):
+        """Close the images of the current workspace and load it again; other
+        images (another workspace, opened by hand) are kept."""
+        path = self.current_workspace_path
+        if not path:
+            return
+        for vs_id in list(self.workspace_image_ids):
+            if vs_id in self.controller.view_states:
+                self.controller.file.close_image(vs_id)
+        self.workspace_image_ids = set()
+        self.tasks.append(load_workspace_sequence(self, self.controller, path))
+
     def refresh_workspace_bar(self):
         """Sync the nav-column workspace icons and the menu item with current state."""
         has_path = bool(self.current_workspace_path)
 
-        # --- Nav: enable/disable Save icon and show current filename ---
+        # --- Nav: Save / Reload icons only with a workspace file ---
         self._safe_configure("ws_nav_btn_save", show=has_path)
-        if self.current_workspace_path:
-            name = os.path.basename(self.current_workspace_path)
-            self._safe_set("ws_nav_filename_text", name)
-            self._safe_configure("ws_nav_filename_text", show=True, indent=5)
-            self._safe_set("ws_nav_path_tooltip", self.current_workspace_path)
-        else:
-            self._safe_set("ws_nav_filename_text", "")
-            self._safe_configure("ws_nav_filename_text", show=False)
-            self._safe_set("ws_nav_path_tooltip", "")
+        self._safe_configure("ws_nav_btn_reload", show=has_path)
 
-        # --- Nav: update Save tooltip with filename + content summary ---
+        # --- Nav: Save / Reload tooltips name the file (path + content summary) ---
         if self.current_workspace_path:
-            name = os.path.basename(self.current_workspace_path)
+            path = self.current_workspace_path
+            name = os.path.basename(path)
             n_images = len(getattr(self.controller, "volumes", {}))
             n_rois = sum(
                 len(getattr(vs, "rois", []))
@@ -2548,26 +2399,27 @@ class MainGUI:
             if n_rois:
                 parts.append(f"{n_rois} ROI{'s' if n_rois != 1 else ''}")
             summary = "  ·  ".join(parts) if parts else ""
-            self._safe_set("ws_save_tooltip_text", f"Save Workspace\n{name}\n{summary}")
+            self._safe_set(
+                "ws_save_tooltip_text", f"Save Workspace: {name}\n{path}\n{summary}"
+            )
+            self._safe_set(
+                "ws_reload_tooltip_text",
+                f"Reload Workspace: {name}\n{path}\n"
+                "back to its last saved state (other images stay open)",
+            )
             self._safe_configure(
                 "menu_save_workspace", show=True, label=f"Save Workspace ({name})"
+            )
+            self._safe_configure(
+                "menu_reload_workspace", show=True, label=f"Reload Workspace ({name})"
             )
         else:
             self._safe_set(
                 "ws_save_tooltip_text", "Save Workspace\n(no workspace open)"
             )
+            self._safe_set("ws_reload_tooltip_text", "Reload Workspace")
             self._safe_configure("menu_save_workspace", show=False)
-
-    def on_recent_file_clicked(self, sender, app_data, user_data):
-        path = user_data
-        if isinstance(path, str) and path.startswith("4D:"):
-            self.tasks.append(load_single_image_sequence(self, self.controller, path))
-        else:
-            self.tasks.append(load_batch_images_sequence(self, self.controller, [path]))
-
-    def on_clear_recent_clicked(self, sender, app_data, user_data):
-        self.controller.settings.data.setdefault("behavior", {})["recent_files"] = []
-        self.refresh_recent_menu()
+            self._safe_configure("menu_reload_workspace", show=False)
 
     def on_global_reset_clicked(self, sender=None, app_data=None, user_data=None):
         for vs_id in self.controller.view_states:
@@ -2581,113 +2433,6 @@ class MainGUI:
             for v in self.controller.viewers.values():
                 if v.image_id:
                     v.action_center_view()
-
-    def on_menu_pixelated_zoom_toggled(self, sender, app_data, user_data):
-        if self.context_viewer and self.context_viewer.view_state:
-            self.context_viewer.view_state.display.pixelated_zoom = app_data
-            self.context_viewer.view_state.is_data_dirty = True
-            self.controller.ui_needs_refresh = True
-
-    def _init_rendering_menu(self):
-        cfg = self.controller.settings.data.get("rendering", {})
-        viewer = self.context_viewer
-
-        has_fusion = False
-        is_hw = False
-        nn_on = False
-        if viewer:
-            vs = viewer.view_state
-            has_fusion = bool(
-                vs
-                and vs.display.overlay.image_id
-                and vs.display.overlay.mode == "Alpha"
-            )
-            use_gl = cfg.get("gl_nearest", True)
-            is_hw = GL_NEAREST_SUPPORTED and use_gl
-            nn_on = bool(vs and vs.display.pixelated_zoom)
-
-        # Build the effective-mode suffix shown on the top-level menu item
-        if nn_on:
-            if is_hw:
-                _mode_tag = "HW GL_NEAREST"
-            else:
-                _st = cfg.get("single_texture", "Auto")
-                _nv = cfg.get("native_voxel", "Auto")
-                _is_single = (
-                    has_fusion if _st == "Auto" else (_st is True or _st == "Single")
-                )
-                _is_native = True if _nv == "Auto" else (_nv is True or _nv == "Native")
-                _ll = cfg.get("lazy_lin", "Auto")
-                _lazy_on = (
-                    (has_fusion and not is_hw)
-                    if _ll == "Auto"
-                    else (_ll is True or _ll == "On")
-                )
-                _tex = "Single" if _is_single else "Dual"
-                _vox = "Native" if _is_native else "Resampled"
-                _lazy = " + Lazy" if _lazy_on else ""
-                _mode_tag = f"{_tex}-{_vox}{_lazy}"
-            nn_label = f"NN: {_mode_tag}  [K]"
-        else:
-            nn_label = "NN Interpolation  [K]"
-
-        self._safe_configure("menu_item_pixelated", label=nn_label)
-
-        ll_auto_str = f"Auto ({'On' if (has_fusion and not is_hw) else 'Off'})"
-        st_auto_str = f"Auto ({'Single' if has_fusion else 'Dual'})"
-        nv_auto_str = "Auto (Native)"
-
-        self._safe_configure(
-            "menu_combo_lazy_lin", items=[ll_auto_str, "On", "Off"], enabled=not is_hw
-        )
-        v = cfg.get("lazy_lin", "Auto")
-        self._safe_set(
-            "menu_combo_lazy_lin",
-            ll_auto_str if v == "Auto" else ("On" if v else "Off"),
-        )
-
-        self._safe_configure(
-            "menu_combo_single_tex", items=[st_auto_str, "Single", "Dual"]
-        )
-        v = cfg.get("single_texture", "Auto")
-        self._safe_set(
-            "menu_combo_single_tex",
-            st_auto_str if v == "Auto" else ("Single" if v else "Dual"),
-        )
-
-        self._safe_configure(
-            "menu_combo_native_vox", items=[nv_auto_str, "Native", "Resampled"]
-        )
-        v = cfg.get("native_voxel", "Auto")
-        self._safe_set(
-            "menu_combo_native_vox",
-            nv_auto_str if v == "Auto" else ("Native" if v else "Resampled"),
-        )
-
-        self._safe_set("menu_check_gl_nearest", cfg.get("gl_nearest", True))
-        self._safe_set("menu_check_numba", cfg.get("numba", True))
-
-    def on_adv_rendering_changed(self, sender, app_data, user_data):
-        cfg = self.controller.settings.data.setdefault("rendering", {})
-        if sender == "menu_combo_lazy_lin":
-            cfg["lazy_lin"] = (
-                "Auto" if app_data.startswith("Auto") else (app_data == "On")
-            )
-        elif sender == "menu_combo_single_tex":
-            cfg["single_texture"] = (
-                "Auto" if app_data.startswith("Auto") else (app_data == "Single")
-            )
-        elif sender == "menu_combo_native_vox":
-            cfg["native_voxel"] = (
-                "Auto" if app_data.startswith("Auto") else (app_data == "Native")
-            )
-        elif sender == "menu_check_gl_nearest":
-            cfg["gl_nearest"] = app_data
-        elif sender == "menu_check_numba":
-            cfg["numba"] = app_data
-        self.controller.save_settings()
-        self.controller._flag_all_viewers_dirty()
-        self._init_rendering_menu()
 
     # ==========================================
     # 5. MODALS & POPUPS
@@ -2732,7 +2477,7 @@ class MainGUI:
         self.fusion_ui.refresh_fusion_ui()
         self.contours_ui.refresh_contours_ui()
 
-        self._init_rendering_menu()
+        self.refresh_rendering_menu()
 
         # Safely update the sidebar between frames when the DPG stack is completely empty!
         self.update_sidebar_info(self.context_viewer)

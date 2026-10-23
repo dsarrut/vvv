@@ -17,6 +17,10 @@ class DvfPlugin(PluginProtocol):
         self._controller.bind(api)
         self._ui.create_ui(parent, api)
 
+    def is_applicable(self, api: PluginAPI) -> bool:
+        """A displacement vector field is the base or fused image of the active viewer."""
+        return self._controller._get_target_vs()[0] is not None
+
     def update(self, api: PluginAPI) -> None:
         self._controller.update(api)
 

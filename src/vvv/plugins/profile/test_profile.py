@@ -117,6 +117,12 @@ class TestProfilePlugin(unittest.TestCase):
         self.assertFalse(dpg.does_item_exist(win_tag))
         self.assertFalse(profile.plot_open)
 
+        # The toolbar button toggles: opens all when none is open, else closes all
+        self.plugin._ui.on_toggle_all_plots_clicked()
+        self.assertTrue(dpg.does_item_exist(win_tag))
+        self.plugin._ui.on_toggle_all_plots_clicked()
+        self.assertFalse(dpg.does_item_exist(win_tag))
+
         dpg.delete_item("test_parent")
 
     def test_plot_position_persistence(self):
@@ -345,6 +351,22 @@ class TestProfilePlugin(unittest.TestCase):
 
         controller.on_btn_add_clicked(None, None, None)
         viewer.action_add_profile.assert_called_once()
+
+    def test_profile_sorting(self):
+        controller = self.plugin._controller
+        controller.bind(self.mock_api)
+
+        viewer = MagicMock()
+        viewer.image_id = "img1"
+        self.mock_api.get_active_viewer.return_value = viewer
+
+        self.assertEqual(controller.profile_sort_orders.get("img1", 0), 0)
+        controller.on_sort_profiles()
+        self.assertEqual(controller.profile_sort_orders.get("img1", 0), 1)
+        controller.on_sort_profiles()
+        self.assertEqual(controller.profile_sort_orders.get("img1", 0), -1)
+        controller.on_sort_profiles()
+        self.assertEqual(controller.profile_sort_orders.get("img1", 0), 0)
 
 
 if __name__ == "__main__":

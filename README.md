@@ -37,7 +37,7 @@ Or install the development version from source:
 ```bash
 git clone https://github.com/dsarrut/vvv
 cd vvv
-pip install -e .
+pip install -e .          # or pip install -e ".[dev]" to also get the test tools (pytest, fonttools)
 ```
 
 <details>

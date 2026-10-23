@@ -3,7 +3,7 @@
 What IS tested here
 -------------------
 - on_file_drop routing: image files → batch loader, .vvw → workspace loader,
-  mixed input, empty / None input, multi-workspace truncation.
+  mixed input, empty / None input, several workspaces (all, in order).
 - install_os_drop platform dispatch (mocked platform functions).
 - cleanup_os_drop clears module globals and calls the right teardown.
 
@@ -84,12 +84,14 @@ class TestOnFileDrop:
 
     @patch("vvv.ui.gui.load_batch_images_sequence", return_value=iter([]))
     @patch("vvv.ui.gui.load_workspace_sequence",    return_value=iter([]))
-    def test_multiple_workspace_files_uses_first_only(self, mock_ws, mock_batch, headless_gui_app):
+    def test_multiple_workspace_files_all_in_order(self, mock_ws, mock_batch, headless_gui_app):
+        """Images first, then each workspace in order: the last one is current."""
         _, gui, *_ = headless_gui_app
         _make_mock_gui(gui)
-        gui.on_file_drop(None, ["/first.vvw", "/second.vvw"], None)
-        mock_ws.assert_called_once()
-        assert mock_ws.call_args[0][2] == "/first.vvw"
+        gui.on_file_drop(None, ["/first.vvw", "/scan.nii", "/second.vvw"], None)
+        assert [c[0][2] for c in mock_ws.call_args_list] == ["/first.vvw", "/second.vvw"]
+        assert gui.current_workspace_path == "/second.vvw"
+        assert len(gui.tasks) == 3 and mock_batch.call_count == 1
 
 
 # ---------------------------------------------------------------------------

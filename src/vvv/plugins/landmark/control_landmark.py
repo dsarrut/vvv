@@ -10,6 +10,7 @@ import dearpygui.dearpygui as dpg
 from vvv.config import ROI_COLORS
 from vvv.plugins.plugin_api import PluginAPI, PluginTagMixin
 from vvv.ui.file_dialog import open_file_dialog, save_file_dialog
+from vvv.ui.ui_components import name_matches, next_sort_order, sort_by_name
 from .landmark_state import Landmark
 
 
@@ -21,6 +22,8 @@ class LandmarkPluginController(PluginTagMixin):
         self._api: Optional[PluginAPI] = None
         self._ui = None
         self.landmark_filters: Dict[str, str] = {}
+        self.landmark_filter_inverts: Dict[str, bool] = {}
+        self.landmark_sort_orders: Dict[str, int] = {}
         self.landmark_counters: Dict[str, int] = {}
         self.landmarks_file_path: Dict[str, Optional[str]] = {}
         self.landmarks_last_mtimes: Dict[str, float] = {}
@@ -43,6 +46,8 @@ class LandmarkPluginController(PluginTagMixin):
 
     def on_image_removed(self, image_id: str) -> None:
         self.landmark_filters.pop(image_id, None)
+        self.landmark_filter_inverts.pop(image_id, None)
+        self.landmark_sort_orders.pop(image_id, None)
         self.landmarks_file_path.pop(image_id, None)
         self.landmarks_last_mtimes.pop(image_id, None)
         self.landmarks_is_outdated.pop(image_id, None)
@@ -140,6 +145,20 @@ class LandmarkPluginController(PluginTagMixin):
         return vs.landmarks
 
     # --- Landmark CRUD Operations ---
+
+
+    def listed_landmarks(self, image_id: Optional[str] = None) -> Dict[str, Landmark]:
+        """Landmarks shown by the name filter: what the batch actions act on."""
+        vs_id = image_id or self._get_active_vs_id()
+        text = self.landmark_filters.get(vs_id, "")
+        invert = self.landmark_filter_inverts.get(vs_id, False)
+        lms = [
+            (lm_id, lm)
+            for lm_id, lm in self.get_landmarks(vs_id).items()
+            if name_matches(lm.name, text, invert)
+        ]
+        order = self.landmark_sort_orders.get(vs_id, 0)
+        return dict(sort_by_name(lms, order, name=lambda x: x[1].name))
 
     def add_landmark(
         self,
@@ -316,8 +335,8 @@ class LandmarkPluginController(PluginTagMixin):
                 self._api.update_all_viewers_of_image(vs_id, data_dirty=False)
 
     def toggle_all_show_names(self, image_id: Optional[str] = None) -> None:
-        """Toggle show_name for all landmarks. If any is True, set all False; else set all True."""
-        landmarks = self.get_landmarks(image_id)
+        """Toggle show_name for the listed landmarks. If any is True, set all False; else set all True."""
+        landmarks = self.listed_landmarks(image_id)
         if not landmarks:
             return
         any_on = any(lm.show_name for lm in landmarks.values())
@@ -352,7 +371,7 @@ class LandmarkPluginController(PluginTagMixin):
         if not vs_id or not self._api:
             return
         vol = self._api.get_volumes().get(vs_id)
-        landmarks = self.get_landmarks(vs_id)
+        landmarks = self.listed_landmarks(vs_id)
         vs = self._api.get_view_states().get(vs_id)
         if vol and landmarks:
             space = vs.space if vs else None
@@ -602,6 +621,27 @@ class LandmarkPluginController(PluginTagMixin):
         vs_id = self._get_active_vs_id()
         if vs_id:
             self.landmark_filters[vs_id] = ""
+            self.landmark_filter_inverts[vs_id] = False
+            if self._api:
+                self._api.request_refresh()
+
+    def on_toggle_filter_invert(self) -> None:
+        vs_id = self._get_active_vs_id()
+        if vs_id:
+            self.landmark_filter_inverts[vs_id] = not self.landmark_filter_inverts.get(
+                vs_id, False
+            )
+            if self._api:
+                self._api.request_refresh()
+
+    def on_sort_landmarks(self) -> None:
+        vs_id = self._get_active_vs_id()
+        if vs_id:
+            self.landmark_sort_orders[vs_id] = next_sort_order(
+                self.landmark_sort_orders.get(vs_id, 0)
+            )
+            if self._ui:
+                self._ui._last_state_key = None
             if self._api:
                 self._api.request_refresh()
 
@@ -609,15 +649,11 @@ class LandmarkPluginController(PluginTagMixin):
         vs_id = self._get_active_vs_id()
         if not vs_id:
             return
-        landmarks = self.get_landmarks(vs_id)
-        filter_text = self.landmark_filters.get(vs_id, "").lower()
         from vvv.ui.ui_components import normalize_rgba_to_int
 
         color_255 = normalize_rgba_to_int(color_rgba)
-
-        for lm_id, lm in landmarks.items():
-            if not filter_text or filter_text in lm.name.lower():
-                lm.color = color_255
+        for lm in self.listed_landmarks(vs_id).values():
+            lm.color = color_255
 
         if self._api:
             vs = self._api.get_view_states().get(vs_id)
@@ -626,11 +662,11 @@ class LandmarkPluginController(PluginTagMixin):
             self._api.request_refresh()
 
     def on_batch_reset_colors(self) -> None:
-        """Reset colors of landmarks sequentially according to ROI_COLORS palette."""
+        """Reset colors of the listed landmarks sequentially according to ROI_COLORS palette."""
         vs_id = self._get_active_vs_id()
         if not vs_id:
             return
-        landmarks = self.get_landmarks(vs_id)
+        landmarks = self.listed_landmarks(vs_id)
         if not landmarks:
             return
         from vvv.ui.ui_components import normalize_rgba_to_int
@@ -650,13 +686,7 @@ class LandmarkPluginController(PluginTagMixin):
         vs_id = self._get_active_vs_id()
         if not vs_id:
             return
-        landmarks = self.get_landmarks(vs_id)
-        filter_text = self.landmark_filters.get(vs_id, "").lower()
-        filtered = [
-            lm
-            for lm in landmarks.values()
-            if not filter_text or filter_text in lm.name.lower()
-        ]
+        filtered = list(self.listed_landmarks(vs_id).values())
         any_visible = any(lm.visible for lm in filtered)
         new_val = not any_visible
         for lm in filtered:
@@ -672,12 +702,7 @@ class LandmarkPluginController(PluginTagMixin):
         if not vs_id:
             return
         landmarks = self.get_landmarks(vs_id)
-        filter_text = self.landmark_filters.get(vs_id, "").lower()
-        to_delete = [
-            lm_id
-            for lm_id, lm in landmarks.items()
-            if not filter_text or filter_text in lm.name.lower()
-        ]
+        to_delete = list(self.listed_landmarks(vs_id))
         for lm_id in to_delete:
             del landmarks[lm_id]
         if not landmarks:

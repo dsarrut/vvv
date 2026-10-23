@@ -115,7 +115,18 @@ class PluginAPI:
         return [0, 0]
 
     def get_active_viewer(self):
-        return self._gui.context_viewer
+        viewer = self._gui.context_viewer
+        if (not viewer or not viewer.image_id) and hasattr(self._controller, "viewers"):
+            active_tag = getattr(self._controller, "active_viewer_tag", "V1")
+            cand = self._controller.viewers.get(active_tag)
+            if cand and cand.image_id:
+                viewer = cand
+            elif self._controller.viewers:
+                for v in self._controller.viewers.values():
+                    if v.image_id:
+                        viewer = v
+                        break
+        return viewer
 
     def get_active_image_id(self) -> str | None:
         """Returns the image ID currently being displayed in the active viewer, or None."""
@@ -155,6 +166,10 @@ class PluginAPI:
 
     def get_image_display_name(self, image_id):
         return self._controller.get_image_display_name(image_id)
+
+    def get_image_name(self, image_id) -> str:
+        """The image name alone (no number, no outdated mark)."""
+        return self._controller.get_image_name(image_id)
 
     def get_view_states(self) -> dict[str, ViewState]:
         with self._controller._state_lock:
@@ -243,8 +258,14 @@ class PluginAPI:
         """Schedule a callback to be executed on the main GUI thread."""
         self._gui.schedule_main_thread(callback)
 
-    def scan_dicom_folder(self, folder, recursive=True):
-        return self._controller.file.scan_dicom_folder(folder, recursive=recursive)
+    def scan_dicom_folder(self, folder, recursive=True, use_cache=True):
+        return self._controller.file.scan_dicom_folder(
+            folder, recursive=recursive, use_cache=use_cache
+        )
+
+    def last_dicom_scan_info(self) -> dict:
+        """{"dirs", "cached", "use_cache"} of the last DICOM folder scan."""
+        return dict(getattr(self._controller.file, "last_dicom_scan", {}) or {})
 
     def load_dicom_series(self, file_list: list[str]) -> None:
         from vvv.ui.ui_sequences import load_batch_images_sequence
@@ -302,7 +323,11 @@ class PluginAPI:
         # A label map or RT-Struct is reloaded as a whole (all its ROIs)
         batch = self._controller.roi.take_file_rois_for_reload(image_id, roi_id)
         if batch is None:
-            self._controller.roi.reload_roi(image_id, roi_id)
+            from vvv.ui.ui_sequences import reload_rois_sequence
+
+            self._gui.tasks.append(
+                reload_rois_sequence(self._gui, self._controller, image_id, [roi_id])
+            )
             return
         source_type, filepath, info = batch
         if source_type == "Label Map":
@@ -322,6 +347,13 @@ class PluginAPI:
                     self._gui, self._controller, image_id, filepath, info
                 )
             )
+
+    def reload_rois(self, image_id, roi_ids) -> None:
+        from vvv.ui.ui_sequences import reload_rois_sequence
+
+        self._gui.tasks.append(
+            reload_rois_sequence(self._gui, self._controller, image_id, roi_ids)
+        )
 
     def center_on_roi(self, image_id, roi_id) -> None:
         self._controller.roi.center_on_roi(image_id, roi_id)

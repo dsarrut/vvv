@@ -23,6 +23,8 @@ The DICOM browser recursively parses all files and groups them according to the 
 2. **Study**: Study Date, Study Description, Accession Number.
 3. **Series**: Series Number, Series Description, Modality (`CT`, `MR`, `PT`, `RTSTRUCT`, `RTDOSE`), Number of Slices, Matrix Dimensions.
 
+**Scan cache.** The result of each scanned folder is kept in the vvv configuration folder (`dicom_cache/`, never in the scanned folders). The next scan of the same folder reuses it for every sub-folder whose files are unchanged (same names, sizes and modification times), so re-scanning a large tree takes a fraction of a second; changed folders are read again. The status shows how many folders came from the cache. The ⟳ button next to **Scan Folder** rescans everything without the cache and rebuilds it.
+
 ---
 
 ## Loading Series & Structures

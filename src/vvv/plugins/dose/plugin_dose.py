@@ -18,6 +18,10 @@ class DosePlugin(PluginProtocol):
         self._controller.bind(api)
         self._ui.create_ui(parent, api)
 
+    def is_applicable(self, api: PluginAPI) -> bool:
+        """A dose image (Gy unit) is the base or fused image of the active viewer."""
+        return bool(self._controller.get_dose_target_info()[0])
+
     def update(self, api: PluginAPI) -> None:
         self._controller.update(api)
 

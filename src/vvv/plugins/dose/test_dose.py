@@ -97,7 +97,10 @@ class TestDosePlugin(unittest.TestCase):
         req_tag = self.plugin._ui._t("group_dose_requirement")
         content_tag = self.plugin._ui._t("group_dose_content")
         self.assertTrue(dpg.is_item_shown(req_tag))
-        self.assertFalse(dpg.is_item_shown(content_tag))
+        # The tools stay visible, greyed out (the user sees what exists)
+        self.assertTrue(dpg.is_item_shown(content_tag))
+        reset_btn = self.plugin._ui._t("btn_reset_levels")
+        self.assertFalse(dpg.get_item_configuration(reset_btn)["enabled"])
 
     def test_active_when_base_has_gy(self):
         self.mock_viewer.volume.unit = "Gy"
@@ -112,6 +115,8 @@ class TestDosePlugin(unittest.TestCase):
         content_tag = self.plugin._ui._t("group_dose_content")
         self.assertFalse(dpg.is_item_shown(req_tag))
         self.assertTrue(dpg.is_item_shown(content_tag))
+        reset_btn = self.plugin._ui._t("btn_reset_levels")
+        self.assertTrue(dpg.get_item_configuration(reset_btn)["enabled"])
 
     def test_enable_button_assigns_gy_to_base(self):
         self.mock_viewer.volume.unit = "HU"
@@ -1269,8 +1274,9 @@ class TestDosePlugin(unittest.TestCase):
         self.assertEqual(len(ui.dvh_win._get_filtered_curves()), 1)
         self.assertEqual(ui.dvh_win._get_filtered_curves()[0].roi_name, "Bladder")
 
-        # Clear filter
+        # Clear filter (also turns the invert off)
         ui.dvh_win._on_clear_filter()
+        self.assertFalse(ui.dvh_win.filter_invert)
         self.assertEqual(len(ui.dvh_win._get_filtered_curves()), 1)
 
         # Test Fit View
@@ -1442,6 +1448,21 @@ class TestDosePlugin(unittest.TestCase):
         ui.dvh_win._on_table_sort(sort_specs=None)
         self.assertIsNone(ui.dvh_win.sort_column)
 
+        # 6. Test structure filter sort button
+        self.assertEqual(ui.dvh_win.structure_sort_order, 0)
+        ui.dvh_win._on_sort_structures()
+        self.assertEqual(ui.dvh_win.structure_sort_order, 1)
+        filtered_names = [c.roi_name for c in ui.dvh_win._get_filtered_curves()]
+        self.assertEqual(filtered_names, ["Bladder", "PTV", "Rectum"])
+
+        ui.dvh_win._on_sort_structures()
+        self.assertEqual(ui.dvh_win.structure_sort_order, -1)
+        filtered_names = [c.roi_name for c in ui.dvh_win._get_filtered_curves()]
+        self.assertEqual(filtered_names, ["Rectum", "PTV", "Bladder"])
+
+        ui.dvh_win._on_sort_structures()
+        self.assertEqual(ui.dvh_win.structure_sort_order, 0)
+
         ui.dvh_win.on_window_close()
 
     def test_isodose_input_tag_shielding(self):
@@ -1578,6 +1599,22 @@ class TestDosePlugin(unittest.TestCase):
         self.assertGreater(dvh_win._calc_token, first_token)
         self.assertTrue(dvh_win.wait_for_calculation(timeout=5.0))
         self.assertEqual(len(dvh_win.curves), 1)
+
+    def test_dvh_button_toggles_window(self):
+        """The DVH button shows / hides the window and shows its state."""
+        self.mock_viewer.volume.unit = "Gy"
+        ui = self.plugin._ui
+        btn = ui._t("btn_open_dvh")
+        ui.on_open_dvh_clicked(async_calc=False)
+        self.assertTrue(ui.dvh_win.is_open())
+        self.assertEqual(dpg.get_item_label(btn), "Hide DVH")
+        ui.on_open_dvh_clicked(async_calc=False)
+        self.assertFalse(ui.dvh_win.is_open())
+        self.assertEqual(dpg.get_item_label(btn), "Show DVH")
+        # Closed with the window's own close button
+        ui.on_open_dvh_clicked(async_calc=False)
+        ui.dvh_win.on_window_close()
+        self.assertEqual(dpg.get_item_label(btn), "Show DVH")
 
     def test_dvh_window_close_cancels_worker(self):
         """PC3: closing DVH window sets stop_event and increments token."""

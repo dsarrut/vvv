@@ -1,4 +1,5 @@
 import dearpygui.dearpygui as dpg
+from vvv.ui.ui_components import build_dialog_footer
 
 
 def show_help_window(gui):
@@ -173,13 +174,7 @@ def show_help_window(gui):
                     dpg.add_text(desc)
 
         dpg.add_spacer(height=15)
-        with dpg.group(horizontal=True):
-            dpg.add_spacer(width=210)
-            dpg.add_button(
-                label="Close",
-                width=100,
-                callback=lambda: dpg.delete_item(window_tag),
-            )
+        build_dialog_footer([("Close", lambda: dpg.delete_item(window_tag))])
 
     vp_width = max(dpg.get_viewport_client_width(), 800)
     dpg.set_item_pos(window_tag, [vp_width - 540, 40])
