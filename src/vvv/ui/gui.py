@@ -26,6 +26,7 @@ from vvv.ui.ui_components import (
     LIST_BOTTOM_H,
     build_collapsible_title,
     set_title_folded,
+    click_menu,
 )
 from vvv.ui.ui_sync import build_tab_sync, refresh_sync_ui
 from vvv.ui.file_dialog import open_file_dialog, save_file_dialog
@@ -689,7 +690,7 @@ class MainGUI:
                         )
                         if dpg.does_item_exist("icon_font_tag"):
                             dpg.bind_item_font(btn_preset, "icon_font_tag")
-                        with dpg.popup(btn_preset, mousebutton=dpg.mvMouseButton_Left):
+                        with click_menu(btn_preset):
                             dpg.add_text("Standard Presets", color=dim_col)
                             dpg.add_separator()
                             for label, u_val in STANDARD_UNITS:

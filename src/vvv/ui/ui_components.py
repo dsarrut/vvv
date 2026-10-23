@@ -616,6 +616,27 @@ def set_controls_enabled(container, enabled):
 
 
 @contextmanager
+def click_menu(parent, mousebutton=dpg.mvMouseButton_Left):
+    """Like dpg.popup, but the menu opens at the mouse from the first click
+    (dpg.popup only shows the window: the first time it opened at the top left
+    of the viewport). The items of the with-block are the menu content."""
+    menu = dpg.add_window(popup=True, show=False, autosize=True, no_title_bar=True)
+
+    def open_menu():
+        x, y = dpg.get_mouse_pos(local=False)
+        dpg.configure_item(menu, pos=[int(x), int(y)], show=True)
+
+    with dpg.item_handler_registry() as reg:
+        dpg.add_item_clicked_handler(mousebutton, callback=open_menu)
+    dpg.bind_item_handler_registry(parent, reg)
+    dpg.push_container_stack(menu)
+    try:
+        yield menu
+    finally:
+        dpg.pop_container_stack()
+
+
+@contextmanager
 def columns_row(n, width=-FIELD_RIGHT_MARGIN, tag=None):
     """A row of n equal columns (borderless table) ending at `width` (the
     right margin by default): the items of the with-block are its cells, in
@@ -781,7 +802,7 @@ def build_stepped_slider(
             dpg.bind_item_theme(btn_minus, "icon_button_theme")
 
         # Hidden Right-Click Menu for Minus
-        with dpg.popup(btn_minus, mousebutton=dpg.mvMouseButton_Right):
+        with click_menu(btn_minus, mousebutton=dpg.mvMouseButton_Right):
             dpg.add_text("Step Speed", color=[150, 150, 150])
             dpg.add_separator()
             dpg.add_selectable(
@@ -808,7 +829,7 @@ def build_stepped_slider(
             dpg.bind_item_theme(btn_plus, "icon_button_theme")
 
         # Hidden Right-Click Menu for Plus
-        with dpg.popup(btn_plus, mousebutton=dpg.mvMouseButton_Right):
+        with click_menu(btn_plus, mousebutton=dpg.mvMouseButton_Right):
             dpg.add_text("Step Speed", color=[150, 150, 150])
             dpg.add_separator()
             dpg.add_selectable(
