@@ -103,7 +103,7 @@ class DvfUI(PluginTagMixin):
                         has_color=True,
                         color_tag=self._t("color_min"),
                         color_cb=self._c.on_color_min_changed,
-                        color_default=(0, 255, 255, 255),
+                        color_default=(255, 255, 0, 255),
                         help_text="Minimum vector magnitude required to draw the vector at all.",
                         gui=api,
                         label_width=90,

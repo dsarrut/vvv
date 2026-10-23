@@ -452,7 +452,7 @@ class DVFState:
         self.vector_thickness = 1.0
         self.vector_min_length_arrow = 3.0
         self.vector_min_length_draw = 0.0
-        self.vector_color_min = [0, 255, 255, 255]  # Cyan
+        self.vector_color_min = [255, 255, 0, 255]  # Yellow (small) -> red (large)
         self.vector_color_max = [255, 0, 0, 255]
 
         self.vector_precision = 2

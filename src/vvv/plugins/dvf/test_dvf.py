@@ -235,7 +235,7 @@ def test_dvf_state_defaults():
     assert state.vector_sampling == 5
     assert state.vector_scale == pytest.approx(1.0)
     assert state.vector_thickness == pytest.approx(1.0)
-    assert state.vector_color_min == [0, 255, 255, 255]
+    assert state.vector_color_min == [255, 255, 0, 255]  # yellow
     assert state.vector_color_max == [255, 0, 0, 255]
     assert state.vector_color_max_mag == pytest.approx(10.0)
     assert state.vector_min_length_arrow == pytest.approx(3.0)
@@ -385,14 +385,14 @@ def test_dvf_color_at_zero_magnitude():
         state.vector_min_length_draw,
         state.vector_color_max_mag,
     )
-    assert color == [0, 255, 255, 255]
+    assert color == [255, 255, 0, 255]
 
 
 def test_dvf_color_at_half_max_magnitude():
     """Magnitude at half of vector_color_max_mag maps to the midpoint color."""
     state = DVFState()
     # Default max_mag=10.0, c_min=[0,255,255,255], c_max=[255,0,0,255]
-    # At mag=5.0: t=0.5 → [127, 127, 127, 255]
+    # At mag=5.0: t=0.5 between yellow and red → [255, 127, 0, 255]
     color = _interpolate_color(
         5.0,
         state.vector_color_min,
@@ -400,7 +400,7 @@ def test_dvf_color_at_half_max_magnitude():
         state.vector_min_length_draw,
         state.vector_color_max_mag,
     )
-    assert color == [127, 127, 127, 255]
+    assert color == [255, 127, 0, 255]
 
 
 def test_dvf_color_clamped_above_max_magnitude():
