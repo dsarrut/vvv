@@ -24,6 +24,8 @@ from vvv.ui.ui_components import (
     build_tooltip,
     apply_help_field_widths,
     LIST_BOTTOM_H,
+    build_collapsible_title,
+    set_title_folded,
 )
 from vvv.ui.ui_sync import build_tab_sync, refresh_sync_ui
 from vvv.ui.file_dialog import open_file_dialog, save_file_dialog
@@ -56,6 +58,12 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# Side panels: height of a folded panel (its title line), and the window
+# height below which the Crosshair panel starts folded (no choice saved yet)
+FOLDED_PANEL_H = 34
+AUTO_FOLD_BELOW_H = 800
+NAV_BTN_MIN_H = 26  # nav buttons shrink down to this on a short window
+
 _POSITIONAL_KINDS = (
     inspect.Parameter.POSITIONAL_ONLY,
     inspect.Parameter.POSITIONAL_OR_KEYWORD,
@@ -85,6 +93,10 @@ class MainGUI:
         self._main_thread_lock = threading.Lock()
         self.status_message_expire_time = float("inf")
         self.image_label_tags = {}
+        # Folded side panels ("av": Active Viewer, "ch": Crosshair); None in the
+        # settings = no choice made yet (see auto_fold_panels)
+        saved = self.controller.settings.data.get("layout", {}).get("folded_panels")
+        self.folded_panels = set(saved or [])
         self.sync_label_tags = {}
         self.current_workspace_path: str | None = None
         self.is_beginner_mode = bool(
@@ -391,6 +403,7 @@ class MainGUI:
     def build_vertical_nav(self):
         """Creates the vertical tool buttons."""
         cfg_l = self.ui_cfg["layout"]
+        btn_h = getattr(self, "_nav_btn_h", cfg_l["nav_btn_h"])  # see _fit_nav_button_height
 
         if not dpg.does_item_exist("nav_panel"):
             return
@@ -440,7 +453,7 @@ class MainGUI:
                         label=name,
                         tag=f"nav_btn_{tag}",
                         width=-1,
-                        height=cfg_l["nav_btn_h"],
+                        height=btn_h,
                         user_data=tag,
                         callback=self.on_nav_clicked,
                     )
@@ -459,7 +472,7 @@ class MainGUI:
                     label="\uf013",
                     tag="btn_settings",
                     width=-1,
-                    height=cfg_l["nav_btn_h"],
+                    height=btn_h,
                     callback=lambda: self.settings_window.show(),
                 )
                 dpg.bind_item_theme(btn_settings, "theme_rounded_nav")
@@ -477,7 +490,7 @@ class MainGUI:
                         label="\uf77c",
                         tag="btn_beginner",
                         width=31,
-                        height=cfg_l["nav_btn_h"],
+                        height=btn_h,
                         callback=self.on_toggle_beginner_mode,
                     )
                     dpg.bind_item_theme(btn_beginner, init_theme)
@@ -491,7 +504,7 @@ class MainGUI:
                         label="\uf059",
                         tag="btn_help",
                         width=-1,
-                        height=cfg_l["nav_btn_h"],
+                        height=btn_h,
                         callback=self.show_help_window,
                     )
                     dpg.bind_item_theme(btn_help, "theme_rounded_nav")
@@ -532,7 +545,13 @@ class MainGUI:
         ):
             with dpg.group(indent=cfg_l["left_inner_m"]):
                 dpg.add_spacer(height=5)
-                build_section_title("Active Viewer", cfg_c["text_header"])
+                build_collapsible_title(
+                    "Active Viewer",
+                    cfg_c["text_header"],
+                    "av_fold_arrow",
+                    lambda: self.toggle_panel_folded("av"),
+                    folded="av" in self.folded_panels,
+                )
                 with dpg.group(tag="image_info_group"):
                     # Store input tag with prefix 'input_info_name' so shortcuts are automatically suppressed by ui_interaction.py
                     def on_info_name_rename(sender, app_data, user_data):
@@ -697,6 +716,80 @@ class MainGUI:
                 dpg.add_spacer(height=5)
                 self.build_visibility_controls()
 
+    def _fit_nav_button_height(self, column_h):
+        """Nav button height so the tool buttons, the workspace icons and the
+        bottom buttons fit the column: nav_btn_h, down to NAV_BTN_MIN_H on a
+        short window. Measured from the last frame (0 before the first one)."""
+        cfg_h = self.ui_cfg["layout"]["nav_btn_h"]
+        cur = getattr(self, "_nav_btn_h", cfg_h)
+        top_now = dpg.get_item_rect_size("nav_top_group")[1] if dpg.does_item_exist("nav_top_group") else 0
+        n = len(getattr(self, "nav_items", []))
+        if not top_now or not n:
+            return cur
+        fixed = top_now - n * cur  # spacing + workspace icons
+        # top group + bottom group (2 rows + 8 px) + 8 px gap between them
+        fit = int((column_h - fixed - 16) // (n + 2))
+        h = max(NAV_BTN_MIN_H, min(cfg_h, fit))
+        if h != cur:
+            self._nav_btn_h = h
+            tags = [f"nav_btn_{t}" for _, t in self.nav_items]
+            for tag in tags + ["btn_settings", "btn_beginner", "btn_help"]:
+                if dpg.does_item_exist(tag):
+                    dpg.set_item_height(tag, h)
+        return h
+
+    def set_panel_folded(self, key, folded, save=True):
+        """Fold ("av" / "ch") a side panel to its title line; the tools panel
+        above gets the freed height."""
+        if folded:
+            self.folded_panels.add(key)
+        else:
+            self.folded_panels.discard(key)
+        set_title_folded(f"{key}_fold_arrow", folded)
+        if save:
+            self.controller.settings.data.setdefault("layout", {})["folded_panels"] = sorted(
+                self.folded_panels
+            )
+            self.controller.save_settings()
+        self.on_window_resize()
+
+    def toggle_panel_folded(self, key):
+        if key == "ch":
+            self._ch_auto_folded = False  # a manual choice: resizing leaves it
+        self.set_panel_folded(key, key not in self.folded_panels)
+
+    def auto_fold_panels(self, window_h, relayout=True):
+        """The Crosshair panel follows the window height: it folds when the
+        window becomes shorter than AUTO_FOLD_BELOW_H (the tools panel is not
+        squeezed) and unfolds when it grows back, if it was folded that way.
+        At start, a short window folds it unless a fold choice is saved.
+        Called on every resize; the automatic folds are not saved."""
+        short = window_h < AUTO_FOLD_BELOW_H
+        was_short = getattr(self, "_window_short", None)
+        self._window_short = short
+        if short == was_short:
+            return
+        if was_short is None:  # start
+            saved = self.controller.settings.data.get("layout", {}).get("folded_panels")
+            fold = short and saved is None
+        elif short:
+            fold = "ch" not in self.folded_panels
+        else:
+            fold = False
+            if not getattr(self, "_ch_auto_folded", False):
+                return
+        if fold:
+            self._ch_auto_folded = True
+            self.folded_panels.add("ch")
+        elif short:
+            return
+        else:
+            self._ch_auto_folded = False
+            self.folded_panels.discard("ch")
+        set_title_folded("ch_fold_arrow", "ch" in self.folded_panels)
+        if relayout:
+            self.on_window_resize()
+
     def build_sidebar_crosshair(self):
         cfg_c = self.ui_cfg["colors"]
         cfg_l = self.ui_cfg["layout"]
@@ -706,7 +799,13 @@ class MainGUI:
         ):
             with dpg.group(indent=cfg_l["left_inner_m"]):
                 dpg.add_spacer(height=5)
-                build_section_title("Crosshair", cfg_c["text_header"])
+                build_collapsible_title(
+                    "Crosshair",
+                    cfg_c["text_header"],
+                    "ch_fold_arrow",
+                    lambda: self.toggle_panel_folded("ch"),
+                    folded="ch" in self.folded_panels,
+                )
                 with dpg.group(tag="image_crosshair_group"):
                     self.create_labeled_field("Value", tag="info_val")
                     self.create_labeled_field("Voxel", tag="info_vox")
@@ -1657,6 +1756,7 @@ class MainGUI:
 
             cfg = self.ui_cfg["layout"]
             m_t, m_l, m_r = cfg["menu_m_top"], cfg["menu_m_left"], cfg["menu_m_right"]
+            self.auto_fold_panels(window_h, relayout=False)  # before the layout below
 
             if dpg.does_item_exist("menu_container"):
                 dpg.set_item_pos("menu_container", [m_l, m_t])
@@ -1696,16 +1796,16 @@ class MainGUI:
                             "nav_top_group", [4, 1]
                         )  # 1px perfect nudge down
 
-                    bot_h = (
-                        2 * cfg["nav_btn_h"]
-                    ) + 8  # 2 rows of buttons (35px) + 1 gap (8px)
+                    btn_h = self._fit_nav_button_height(l_h)
+                    bot_h = 2 * btn_h + 8  # 2 rows of buttons + 1 gap (8px)
                     if dpg.does_item_exist("nav_bot_group"):
                         dpg.set_item_pos("nav_bot_group", [4, l_h - bot_h])
 
                 # --- THE COMPUTED LAYOUT ENGINE ---
                 hide_av = getattr(self, "_hide_av_panel", False)
-                ch_h = cfg["panel_ch_h"]
-                av_h = cfg["panel_av_h"]
+                folded = getattr(self, "folded_panels", set())
+                ch_h = FOLDED_PANEL_H if "ch" in folded else cfg["panel_ch_h"]
+                av_h = FOLDED_PANEL_H if "av" in folded else cfg["panel_av_h"]
                 gap = cfg.get("sidebar_gap", 5)
 
                 # Size the Tool Column

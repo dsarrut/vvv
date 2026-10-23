@@ -58,6 +58,30 @@ def build_section_title(label, color, sep_width=-8, space_below=4):
     return build_horizontal_separator(width=sep_width, space_below=space_below)
 
 
+CARET_OPEN, CARET_FOLDED = "\uf0d7", "\uf0da"
+
+
+def build_collapsible_title(label, color, arrow_tag, on_toggle, folded=False, sep_width=-8, space_below=4):
+    """A section title that folds its panel: a caret (icon text, so the row keeps
+    the height of a plain title) and the label, both clickable. The caller
+    resizes the panel in on_toggle; set_title_folded updates the caret."""
+    with dpg.group(horizontal=True):
+        arrow = dpg.add_text(CARET_FOLDED if folded else CARET_OPEN, tag=arrow_tag, color=color)
+        if dpg.does_item_exist("icon_font_tag"):
+            dpg.bind_item_font(arrow, "icon_font_tag")
+        title = dpg.add_text(label, color=color)
+    with dpg.item_handler_registry() as handlers:
+        dpg.add_item_clicked_handler(callback=lambda *_: on_toggle())
+    dpg.bind_item_handler_registry(arrow, handlers)
+    dpg.bind_item_handler_registry(title, handlers)
+    return build_horizontal_separator(width=sep_width, space_below=space_below)
+
+
+def set_title_folded(arrow_tag, folded):
+    if dpg.does_item_exist(arrow_tag):
+        dpg.set_value(arrow_tag, CARET_FOLDED if folded else CARET_OPEN)
+
+
 def build_help_button(text, gui):
     """A reusable help icon button that only appears when Beginner Mode is active."""
     tag = dpg.generate_uuid()

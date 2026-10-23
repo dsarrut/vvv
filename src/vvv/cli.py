@@ -12,6 +12,8 @@ from vvv.ui.viewer import SliceViewer
 from vvv.maths.image import VolumeData
 from vvv.core.controller import Controller
 from vvv.utils import get_resource_path
+from vvv.config import DEFAULT_SETTINGS
+from vvv.ui.ui_screen import main_screen_size, start_window_geometry
 import logging
 
 logger = logging.getLogger(__name__)
@@ -456,10 +458,16 @@ def main(no_history, datasets, linkall, sync, linkall_wl, debug, fast_gl):
 
     gui = MainGUI(controller)
     controller.gui = gui
-    win_w = controller.settings.data["layout"]["window_width"]
-    win_h = controller.settings.data["layout"]["window_height"]
-
-    dpg.create_viewport(title="VVV", width=win_w, height=win_h)
+    layout = controller.settings.data["layout"]
+    default = DEFAULT_SETTINGS["layout"]
+    win_w, win_h, win_x, win_y = start_window_geometry(
+        layout["window_width"],
+        layout["window_height"],
+        (default["window_width"], default["window_height"]),
+        main_screen_size(),
+    )
+    pos = {"x_pos": win_x, "y_pos": win_y} if win_x is not None else {}
+    dpg.create_viewport(title="VVV", width=win_w, height=win_h, **pos)
 
     active_icon = icon_ico if sys.platform == "win32" else icon_png
     dpg.set_viewport_small_icon(active_icon)
