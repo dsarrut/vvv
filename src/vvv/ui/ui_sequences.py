@@ -3,6 +3,7 @@ import dearpygui.dearpygui as dpg
 import numpy as np
 from vvv.config import ROI_COLORS
 from vvv.ui.ui_notifications import show_loading_modal, hide_loading_modal
+from vvv.ui.ui_components import build_dialog_footer
 import logging
 
 logger = logging.getLogger(__name__)
@@ -751,15 +752,13 @@ def load_label_map_sequence(
                 "Loading them all may take some time. Do you want to continue?"
             )
             dpg.add_spacer(height=10)
-            with dpg.group(horizontal=True):
-                dpg.add_spacer(width=100)
-                dpg.add_button(
-                    label="Continue",
-                    width=100,
-                    callback=on_confirm,
-                    user_data=confirmed,
-                )
-                dpg.add_button(label="Cancel", width=100, callback=on_cancel)
+            build_dialog_footer(
+                [
+                    ("Cancel", lambda: on_cancel(None, None, confirmed)),
+                    ("Continue", lambda: on_confirm(None, None, confirmed)),
+                ],
+                keys_for=modal_tag,
+            )
 
         # Wait for user input
         while dpg.does_item_exist(modal_tag):

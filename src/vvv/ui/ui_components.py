@@ -82,6 +82,56 @@ def set_title_folded(arrow_tag, folded):
         dpg.set_value(arrow_tag, CARET_FOLDED if folded else CARET_OPEN)
 
 
+DIALOG_BTN_W = 100  # footer buttons: one width (wider only if the label needs it)
+
+
+def build_dialog_footer(buttons, keys_for=None):
+    """Dialog footer: buttons right-aligned, all DIALOG_BTN_W wide, in the
+    given order with the main action LAST (on the right): e.g.
+    [("Cancel", on_cancel), ("Save", on_save)].
+
+    keys_for: the dialog window tag; Enter then runs the last button and Esc
+    the first (Cancel / Close). The key handlers go away with the window."""
+    def width(label):
+        size = dpg.get_text_size(label) if dpg.is_dearpygui_running() else None
+        text_w = size[0] if size else 8 * len(label)
+        return max(DIALOG_BTN_W, int(text_w) + 24)
+
+    with dpg.table(
+        header_row=False,
+        borders_innerH=False,
+        borders_innerV=False,
+        borders_outerH=False,
+        borders_outerV=False,
+        width=-1,
+    ):
+        dpg.add_table_column(width_stretch=True)
+        for label, _ in buttons:
+            dpg.add_table_column(width_fixed=True, init_width_or_weight=width(label))
+        with dpg.table_row():
+            dpg.add_spacer(width=1)
+            for label, cb in buttons:
+                dpg.add_button(label=label, width=width(label), callback=lambda *_, cb=cb: cb())
+
+    if keys_for:
+        reg = f"{keys_for}_footer_keys"
+        if dpg.does_item_exist(reg):
+            dpg.delete_item(reg)
+
+        def on_key(cb):
+            def run(*_):
+                if not dpg.does_item_exist(keys_for) or not dpg.is_item_shown(keys_for):
+                    if dpg.does_item_exist(reg):
+                        dpg.delete_item(reg)  # the dialog is gone
+                    return
+                cb()
+            return run
+
+        with dpg.handler_registry(tag=reg):
+            dpg.add_key_press_handler(key=dpg.mvKey_Return, callback=on_key(buttons[-1][1]))
+            dpg.add_key_press_handler(key=dpg.mvKey_Escape, callback=on_key(buttons[0][1]))
+
+
 def build_help_button(text, gui):
     """A reusable help icon button that only appears when Beginner Mode is active."""
     tag = dpg.generate_uuid()

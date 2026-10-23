@@ -229,3 +229,38 @@ def test_batch_action_toolbar_uses_icon_buttons():
     finally:
         if created_ctx:
             dpg.destroy_context()
+
+
+def test_dialog_footer_order_widths_and_keys():
+    import dearpygui.dearpygui as dpg
+    from vvv.ui.ui_components import build_dialog_footer, DIALOG_BTN_W
+
+    created_ctx = False
+    try:
+        dpg.get_active_window()
+    except Exception:
+        dpg.create_context()
+        created_ctx = True
+    try:
+        calls = []
+        with dpg.window(tag="dlg_test"):
+            build_dialog_footer(
+                [("Cancel", lambda: calls.append("cancel")), ("Save", lambda: calls.append("save"))],
+                keys_for="dlg_test",
+            )
+        table = dpg.get_item_children("dlg_test", 1)[-1]
+        row = dpg.get_item_children(table, 1)[0]
+        cells = dpg.get_item_children(row, 1)
+        buttons = [c for c in cells if dpg.get_item_type(c).endswith("mvButton")]
+        assert [dpg.get_item_label(b) for b in buttons] == ["Cancel", "Save"]  # main action last
+        assert {dpg.get_item_width(b) for b in buttons} == {DIALOG_BTN_W}
+        dpg.get_item_callback(buttons[-1])("s", None, None)
+        assert calls == ["save"]
+        assert dpg.does_item_exist("dlg_test_footer_keys")
+    finally:
+        if dpg.does_item_exist("dlg_test_footer_keys"):
+            dpg.delete_item("dlg_test_footer_keys")
+        if dpg.does_item_exist("dlg_test"):
+            dpg.delete_item("dlg_test")
+        if created_ctx:
+            dpg.destroy_context()

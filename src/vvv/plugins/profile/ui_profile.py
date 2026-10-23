@@ -12,6 +12,7 @@ from vvv.ui.ui_components import (
     ICON_EXPORT,
     SMALL_BTN_W,
     build_name_filter_bar,
+    build_dialog_footer,
     name_matches,
     set_filter_count,
     set_filter_invert_state,
@@ -858,23 +859,19 @@ class ProfilePluginUI(PluginTagMixin):
                 width=-1,
             )
             dpg.add_spacer(height=5)
-            with dpg.group(horizontal=True):
-                dpg.add_button(
-                    label="Copy",
-                    width=100,
-                    callback=self.on_copy_confirm_clicked,
-                    user_data={
-                        "profile": profile,
-                        "other_images": other_images,
-                        "combo_tag": combo_tag,
-                        "modal_tag": modal_tag,
-                    },
-                )
-                dpg.add_button(
-                    label="Cancel",
-                    width=100,
-                    callback=lambda: dpg.delete_item(modal_tag),
-                )
+            copy_data = {
+                "profile": profile,
+                "other_images": other_images,
+                "combo_tag": combo_tag,
+                "modal_tag": modal_tag,
+            }
+            build_dialog_footer(
+                [
+                    ("Cancel", lambda: dpg.delete_item(modal_tag)),
+                    ("Copy", lambda: self.on_copy_confirm_clicked(None, None, copy_data)),
+                ],
+                keys_for=modal_tag,
+            )
 
     def on_copy_confirm_clicked(self, sender, app_data, user_data):
         profile = user_data["profile"]

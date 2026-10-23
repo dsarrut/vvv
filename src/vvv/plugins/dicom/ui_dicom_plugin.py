@@ -5,7 +5,9 @@ import dearpygui.dearpygui as dpg
 from vvv.plugins.plugin_api import PluginAPI, PluginTagMixin
 from vvv.ui.file_dialog import open_file_dialog
 from vvv.ui.ui_notifications import show_message
-from vvv.ui.ui_components import build_tooltip
+from vvv.ui.ui_components import build_tooltip, build_icon_button
+
+SCAN_BTN_W = 120
 from vvv.utils import clean_string
 
 
@@ -184,25 +186,20 @@ class DicomPluginUI(PluginTagMixin):
                 ):
                     # --- TOP BAR ---
                     with dpg.group(horizontal=True):
-                        btn_dir = dpg.add_button(
-                            label="\uf07c",
-                            width=30,
+                        build_icon_button(
+                            icon="\uf07c",
                             callback=self.on_select_folder,
                             tag=self._t("btn_select_dir"),
+                            tooltip="Select folder to scan for DICOM files",
+                            gui=self.api,
                         )
-                        if dpg.does_item_exist("icon_font_tag"):
-                            dpg.bind_item_font(btn_dir, "icon_font_tag")
-                        build_tooltip(
-                            btn_dir,
-                            "Select folder to scan for DICOM files",
-                            self.api,
-                            always_on=True,
-                        )
-
+                        # The path fills the row up to the checkbox and Scan button
+                        text_w = dpg.get_text_size("Recurse Subfolders") if dpg.is_dearpygui_running() else None
+                        recurse_w = 28 + int(text_w[0] if text_w else 130)
                         dpg.add_input_text(
                             default_value=self.last_folder,
                             hint="Select a folder to scan...",
-                            width=500,
+                            width=-(recurse_w + 10 + SCAN_BTN_W + 3 * 8),
                             tag=self._t("input_folder_path"),
                         )
                         dpg.add_checkbox(
@@ -220,7 +217,7 @@ class DicomPluginUI(PluginTagMixin):
                         dpg.add_spacer(width=10)
                         dpg.add_button(
                             label="Scan Folder",
-                            width=120,
+                            width=SCAN_BTN_W,
                             callback=self.on_scan_clicked,
                             tag=self._t("btn_scan"),
                         )
@@ -382,7 +379,6 @@ class DicomPluginUI(PluginTagMixin):
                                 btn_open = dpg.add_button(
                                     label="Open Series as Image",
                                     width=-1,
-                                    height=30,
                                     callback=self.on_open_clicked,
                                     tag=self._t("btn_open"),
                                 )

@@ -20,6 +20,7 @@ from vvv.ui.ui_components import (
     build_renamable_input,
     build_delete_button,
     build_name_filter_bar,
+    build_dialog_footer,
     set_filter_count,
     set_filter_invert_state,
     set_item_show,
@@ -1146,35 +1147,31 @@ class RoiPluginUI(PluginTagMixin):
                         dpg.add_text(str(name) if name else f"ROI {i}")
 
             dpg.add_separator()
-            with dpg.group(horizontal=True):
-                dpg.add_spacer(width=250)
-                dpg.add_button(
-                    label="Cancel",
-                    width=80,
-                    callback=lambda: dpg.delete_item(modal_tag),
-                )
 
-                def _on_load():
-                    selected_indices = [
-                        i
-                        for i, cb_id in enumerate(self._rtstruct_cb_ids)
-                        if dpg.get_value(cb_id)
-                    ]
-                    dpg.delete_item(modal_tag)
-                    if not selected_indices:
-                        return
+            def _on_load():
+                selected_indices = [
+                    i
+                    for i, cb_id in enumerate(self._rtstruct_cb_ids)
+                    if dpg.get_value(cb_id)
+                ]
+                dpg.delete_item(modal_tag)
+                if not selected_indices:
+                    return
 
-                    selected_rois = [rois_info[i] for i in selected_indices]
-                    dest_id = target_image_id
-                    if not dest_id:
-                        viewer = self.api.get_active_viewer()
-                        dest_id = viewer.image_id if (viewer and viewer.image_id) else None
-                    if dest_id:
-                        self.api.load_rtstruct(
-                            dest_id, filepath, selected_rois, ds=ds
-                        )
+                selected_rois = [rois_info[i] for i in selected_indices]
+                dest_id = target_image_id
+                if not dest_id:
+                    viewer = self.api.get_active_viewer()
+                    dest_id = viewer.image_id if (viewer and viewer.image_id) else None
+                if dest_id:
+                    self.api.load_rtstruct(
+                        dest_id, filepath, selected_rois, ds=ds
+                    )
 
-                dpg.add_button(label="Load", width=80, callback=_on_load)
+            build_dialog_footer(
+                [("Cancel", lambda: dpg.delete_item(modal_tag)), ("Load", _on_load)],
+                keys_for=modal_tag,
+            )
 
         vp_width = max(dpg.get_viewport_client_width(), 800)
         vp_height = max(dpg.get_viewport_client_height(), 600)
@@ -1734,19 +1731,13 @@ class RoiPluginUI(PluginTagMixin):
             dpg.add_separator()
             dpg.add_spacer(height=8)
 
-            # Dialog Buttons (Cancel / Save)
-            with dpg.group(horizontal=True):
-                dpg.add_spacer(width=340)
-                dpg.add_button(
-                    label="Cancel",
-                    width=85,
-                    callback=lambda: dpg.delete_item(modal_tag),
-                )
-                dpg.add_button(
-                    label="Save",
-                    width=85,
-                    callback=lambda: self._on_save_modal_confirm(base_id),
-                )
+            build_dialog_footer(
+                [
+                    ("Cancel", lambda: dpg.delete_item(modal_tag)),
+                    ("Save", lambda: self._on_save_modal_confirm(base_id)),
+                ],
+                keys_for=modal_tag,
+            )
 
     def _on_save_modal_mode_changed(self, sender, app_data, user_data):
         is_single = "Single" in app_data

@@ -3,7 +3,7 @@ import json
 from typing import Any
 import dearpygui.dearpygui as dpg
 from vvv.core.settings_manager import DEFAULT_SETTINGS
-from vvv.ui.ui_components import build_icon_button
+from vvv.ui.ui_components import build_dialog_footer, build_icon_button
 
 
 class SettingsWindow:
@@ -66,14 +66,14 @@ class SettingsWindow:
             # Footer
             dpg.add_separator()
             dpg.add_spacer(height=5)
-            with dpg.group(horizontal=True):
-                dpg.add_button(label="Save", width=80, callback=self.on_save)
-                dpg.add_button(label="Reload", width=80, callback=self.on_reload)
-                dpg.add_button(
-                    label="Reset Defaults", width=120, callback=self.on_reset
-                )
-                dpg.add_spacer(width=10)
-                dpg.add_text("", tag="settings_status_text")
+            dpg.add_text("", tag="settings_status_text")
+            build_dialog_footer(
+                [
+                    ("Reset Defaults", self.on_reset),
+                    ("Reload", self.on_reload),
+                    ("Save", self.on_save),
+                ]
+            )
 
         self.build_tree()
 
