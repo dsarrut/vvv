@@ -580,6 +580,27 @@ def apply_help_field_widths(is_beginner):
 
 
 @contextmanager
+def columns_row(n, width=-FIELD_RIGHT_MARGIN, tag=None):
+    """A row of n equal columns (borderless table) ending at `width` (the
+    right margin by default): the items of the with-block are its cells, in
+    order; give them width=-1 to fill their cell."""
+    kw = {"tag": tag} if tag else {}
+    with dpg.table(
+        header_row=False,
+        borders_innerH=False,
+        borders_innerV=False,
+        borders_outerH=False,
+        borders_outerV=False,
+        width=width,
+        **kw,
+    ):
+        for _ in range(n):
+            dpg.add_table_column(width_stretch=True)
+        with dpg.table_row() as row:
+            yield row
+
+
+@contextmanager
 def label_row(label, label_w, **text_kwargs):
     """A row 'label | field(s)' whose fields start at label_w, whatever the label
     length: items added in the with-block go in a horizontal group after the

@@ -21,6 +21,9 @@ from vvv.ui.ui_components import (
     build_delete_button,
     build_name_filter_bar,
     build_dialog_footer,
+    columns_row,
+    help_aware_width,
+    FIELD_RIGHT_MARGIN,
     set_filter_count,
     set_filter_invert_state,
     set_item_show,
@@ -29,6 +32,8 @@ from vvv.ui.ui_components import (
 )
 
 logger = logging.getLogger(__name__)
+
+RIGHT = -FIELD_RIGHT_MARGIN
 
 # Source combo: short name of each kind of file
 SOURCE_KINDS = {"RT-Struct": "RT", "Label Map": "Labels", "Binary": "Mask"}
@@ -152,11 +157,11 @@ class RoiPluginUI(PluginTagMixin):
                 color=cfg_c["text_active"],
             )
 
-            # --- TOP: Load & Import ---
-            with dpg.group(horizontal=True):
+            # --- TOP: Load & Import (rows ending on the right margin) ---
+            with columns_row(2):
                 btn_rt = dpg.add_button(
                     label="Open RT-Struct...",
-                    width=150,
+                    width=-1,
                     callback=self.on_load_rtstruct_clicked,
                     tag=self._t("btn_roi_load_rtstruct"),
                 )
@@ -168,7 +173,7 @@ class RoiPluginUI(PluginTagMixin):
 
                 btn_labels = dpg.add_button(
                     label="Open labels...",
-                    width=150,
+                    width=-1,
                     callback=self.on_load_labels_clicked,
                     tag=self._t("btn_roi_load_labels"),
                 )
@@ -179,38 +184,41 @@ class RoiPluginUI(PluginTagMixin):
                 )
 
             with dpg.group(horizontal=True, tag=self._t("group_roi_binary_row")):
-                btn_binary = dpg.add_button(
-                    label="Open mask...",
-                    width=90,
-                    callback=self.on_load_binary_roi_clicked,
-                    tag=self._t("btn_roi_load_binary"),
-                )
-                build_beginner_tooltip(
-                    btn_binary,
-                    "Click to binarize and load image mask files (e.g. NIfTI, TIFF, JPEG).",
-                    self.api,
-                )
-
-                dpg.add_combo(
-                    ["Ignore BG (val)", "Target FG (val)"],
-                    default_value="Ignore BG (val)",
-                    tag=self._t("combo_roi_mode"),
-                    width=90,
-                    callback=self.on_roi_mode_changed,
-                )
-                build_beginner_tooltip(
-                    self._t("combo_roi_mode"),
-                    "Choose how voxels are selected from the loaded image to form the ROI.",
-                    self.api,
-                )
+                with columns_row(
+                    3,
+                    width=help_aware_width(self._t("table_roi_binary_row"), RIGHT, self.api),
+                    tag=self._t("table_roi_binary_row"),
+                ):
+                    btn_binary = dpg.add_button(
+                        label="Open mask...",
+                        width=-1,
+                        callback=self.on_load_binary_roi_clicked,
+                        tag=self._t("btn_roi_load_binary"),
+                    )
+                    dpg.add_combo(
+                        ["Ignore BG (val)", "Target FG (val)"],
+                        default_value="Ignore BG (val)",
+                        tag=self._t("combo_roi_mode"),
+                        width=-1,
+                        callback=self.on_roi_mode_changed,
+                    )
+                    dpg.add_input_float(
+                        default_value=0.0, step=1.0, width=-1, tag=self._t("input_roi_val")
+                    )
                 build_help_button(
                     "Ignore BG: Makes the specified value transparent and keeps everything else.\nTarget FG: Keeps only the exact value specified.",
                     self.api,
                 )
-
-                dpg.add_input_float(
-                    default_value=0.0, step=1.0, width=90, tag=self._t("input_roi_val")
-                )
+            build_beginner_tooltip(
+                btn_binary,
+                "Click to binarize and load image mask files (e.g. NIfTI, TIFF, JPEG).",
+                self.api,
+            )
+            build_beginner_tooltip(
+                self._t("combo_roi_mode"),
+                "Choose how voxels are selected from the loaded image to form the ROI.",
+                self.api,
+            )
 
             with dpg.group(horizontal=True):
 
@@ -404,38 +412,48 @@ class RoiPluginUI(PluginTagMixin):
 
             dpg.add_spacer(height=2)
 
-            with dpg.group(horizontal=True):
-                dpg.add_text("Op:")
-                dpg.add_slider_float(
-                    tag=self._t("slider_roi_global_opacity"),
-                    width=110,
-                    min_value=0.0,
-                    max_value=1.0,
-                    default_value=0.5,
-                    callback=self.on_roi_global_opacity_changed,
-                )
-                build_beginner_tooltip(
-                    self._t("slider_roi_global_opacity"),
-                    "Adjust raster transparency for all loaded ROIs simultaneously.",
-                    self.api,
-                )
-
-                dpg.add_spacer(width=10)
-
-                dpg.add_text("Thk:")
-                dpg.add_slider_float(
-                    tag=self._t("slider_roi_global_thickness"),
-                    width=110,
-                    min_value=0.5,
-                    max_value=10.0,
-                    default_value=1.0,
-                    callback=self.on_roi_global_thickness_changed,
-                )
-                build_beginner_tooltip(
-                    self._t("slider_roi_global_thickness"),
-                    "Adjust contour line thickness for all loaded ROIs simultaneously.",
-                    self.api,
-                )
+            # Opacity / thickness: two equal halves ending on the right margin
+            with dpg.table(
+                header_row=False,
+                borders_innerH=False,
+                borders_innerV=False,
+                borders_outerH=False,
+                borders_outerV=False,
+                width=RIGHT,
+            ):
+                dpg.add_table_column(width_fixed=True)
+                dpg.add_table_column(width_stretch=True)
+                dpg.add_table_column(width_fixed=True)
+                dpg.add_table_column(width_stretch=True)
+                with dpg.table_row():
+                    dpg.add_text("Op:")
+                    dpg.add_slider_float(
+                        tag=self._t("slider_roi_global_opacity"),
+                        width=-1,
+                        min_value=0.0,
+                        max_value=1.0,
+                        default_value=0.5,
+                        callback=self.on_roi_global_opacity_changed,
+                    )
+                    dpg.add_text("Thk:")
+                    dpg.add_slider_float(
+                        tag=self._t("slider_roi_global_thickness"),
+                        width=-1,
+                        min_value=0.5,
+                        max_value=10.0,
+                        default_value=1.0,
+                        callback=self.on_roi_global_thickness_changed,
+                    )
+            build_beginner_tooltip(
+                self._t("slider_roi_global_opacity"),
+                "Adjust raster transparency for all loaded ROIs simultaneously.",
+                self.api,
+            )
+            build_beginner_tooltip(
+                self._t("slider_roi_global_thickness"),
+                "Adjust contour line thickness for all loaded ROIs simultaneously.",
+                self.api,
+            )
 
             build_horizontal_separator()
 
