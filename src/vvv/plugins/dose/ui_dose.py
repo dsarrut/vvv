@@ -10,6 +10,7 @@ from vvv.ui.ui_components import (
     build_delete_button,
     build_icon_button,
     FIELD_RIGHT_MARGIN,
+    LABEL_COL_W,
     requirement_banner,
     set_controls_enabled,
 )
@@ -128,7 +129,7 @@ class DosePluginUI(PluginTagMixin):
                         min_value=0.0,
                         max_value=1.0,
                         format="%.2f",
-                        width=-1,
+                        width=-FIELD_RIGHT_MARGIN,
                         callback=self._c.on_shading_opacity_changed,
                     )
                     build_beginner_tooltip(
@@ -141,7 +142,7 @@ class DosePluginUI(PluginTagMixin):
 
                 # 2. Min threshold stepped slider
                 build_stepped_slider(
-                    "Min Thr:",
+                    "Min Thr",
                     self._t("drag_dose_threshold"),
                     callback=self._c.on_dose_threshold_changed,
                     step_callback=self._c.on_step_button_clicked,
@@ -149,6 +150,7 @@ class DosePluginUI(PluginTagMixin):
                     check_tag=self._t("check_dose_threshold"),
                     check_cb=self._c.on_dose_threshold_toggle,
                     gui=api,
+                    label_col=LABEL_COL_W,
                 )
                 build_beginner_tooltip(
                     self._t("drag_dose_threshold"),
