@@ -1689,3 +1689,35 @@ def test_unit_saved_alone_in_the_sidecar(headless_gui_app):
     gui._refresh_unit_sidecar_ui(vol)
     assert dpg.get_item_configuration("btn_info_unit_save")["show"] is False
     assert js in dpg.get_value("info_unit_source_tooltip")
+
+
+def test_transform_sidecar_applied_at_load_and_unloaded(headless_gui_app, tmp_path):
+    """J5: <image>.tfm next to an image is applied when it is loaded; Unload
+    removes it (the file is kept) and the next load applies it again."""
+    from vvv.maths.transform_io import TransformIO
+
+    controller, gui, viewer, base_id = headless_gui_app
+    img = str(tmp_path / "moved.nii.gz")
+    sitk.WriteImage(sitk.GetImageFromArray(np.zeros((4, 5, 6), np.float32)), img)
+    tr = sitk.Euler3DTransform()
+    tr.SetTranslation((3.0, -2.0, 1.0))
+    TransformIO.write_transform(tr, str(tmp_path / "moved.tfm"))
+
+    vs_id = controller.file.load_image(img)
+    space = controller.view_states[vs_id].space
+    assert space.is_active and space.from_sidecar
+    assert space.transform_file == "moved.tfm"
+    assert space.transform.GetTranslation() == pytest.approx((3.0, -2.0, 1.0))
+    assert controller.wait_for_jobs(timeout=10)
+
+    controller.unload_transform(vs_id)
+    assert space.transform is None and not space.is_active and not space.from_sidecar
+    assert (tmp_path / "moved.tfm").exists()
+    assert controller.wait_for_jobs(timeout=10)
+
+    again = controller.file.load_image(img)
+    assert controller.view_states[again].space.from_sidecar
+    assert controller.wait_for_jobs(timeout=10)
+
+    # an image without a side-car gets no transform
+    assert controller.view_states[base_id].space.transform is None

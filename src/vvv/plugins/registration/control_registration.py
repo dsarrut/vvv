@@ -567,6 +567,24 @@ class RegistrationPluginController(PluginTagMixin):
         else:
             self.on_reg_load_clicked(sender, app_data, user_data)
 
+    def on_reg_unload_clicked(self, sender, app_data, user_data):
+        self._cancel_auto_timer()
+        if not self._api:
+            return
+        target_id, vs, vol, role = self.get_target_info()
+        if not target_id or not vs or vs.space.transform is None:
+            return
+        name = vs.space.transform_file
+        with self._preview_lock:
+            self._preview_version += 1  # drop a pending rotation preview
+        self._api.unload_transform(target_id)
+        if self._ui:
+            self._ui.pull_reg_sliders_from_transform()
+        if dpg.does_item_exist(self._t("btn_reg_resample")):
+            dpg.bind_item_theme(self._t("btn_reg_resample"), 0)
+        self._api.notify(f"Unloaded ({role}): {name}")
+        self._api.request_refresh()
+
     def on_reg_center_cor_clicked(self, sender, app_data, user_data):
         if not self._api:
             return

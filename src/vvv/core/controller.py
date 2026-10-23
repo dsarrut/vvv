@@ -202,11 +202,53 @@ class Controller:
 
             vs.space.transform = new_transform
             vs.space.transform_file = os.path.basename(filepath)
+            vs.space.from_sidecar = False  # set by apply_transform_sidecar
             self.invalidate_resample(vs_id)
             return True
         except Exception as e:
             logger.exception(f"Error loading transform: {e}")
             return False
+
+    def apply_transform_sidecar(self, vs_id):
+        """Load and apply the transform side-car of an image (<name>.tfm, else
+        <name>.mat next to it), if there is one. Returns its path or None."""
+        from vvv.core.sidecar import transform_sidecar_path
+
+        vol = self.volumes.get(vs_id)
+        paths = getattr(vol, "file_paths", None) or []
+        if not paths or not os.path.isfile(str(paths[0])):
+            return None
+        path = transform_sidecar_path(paths[0])
+        if not path:
+            return None
+        if not self.load_transform(vs_id, path):
+            self._set_status(
+                f"Transform side-car not read: {os.path.basename(path)}", level="warning"
+            )
+            return None
+        space = self.view_states[vs_id].space
+        space.full_transform_path = os.path.abspath(path)
+        space.is_active = True
+        space.from_sidecar = True
+        self.resample_image(vs_id)
+        self._set_status(f"Transform applied: {os.path.basename(path)} (side-car)")
+        return path
+
+    def unload_transform(self, vs_id):
+        """Remove the image's transform (its file is kept): the image is shown
+        as read from disk; a side-car is applied again at the next load."""
+        vs = self.view_states.get(vs_id)
+        if not vs:
+            return
+        vs.space.transform = None
+        vs.space.transform_file = "None"
+        vs.space.full_transform_path = None
+        vs.space.is_active = False
+        vs.space.from_sidecar = False
+        self.invalidate_resample(vs_id)
+        vs.reset_preview_rotation()
+        self.resample_image(vs_id)  # base and overlays without the transform
+        self.update_all_viewers_of_image(vs_id)
 
     def save_transform(self, vs_id, filepath):
         vs = self.view_states.get(vs_id)
