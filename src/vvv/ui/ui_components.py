@@ -580,6 +580,42 @@ def apply_help_field_widths(is_beginner):
 
 
 @contextmanager
+def requirement_banner(tag, need, current_tag, colors):
+    """Shown above a tool whose controls are greyed out because the current
+    image does not fit it: what the tool needs (one line) and what the current
+    image is (current_tag, set by the tool). Items added in the with-block
+    (e.g. an action button) go below."""
+    with dpg.group(tag=tag):
+        # wrap=0: wrap at the panel edge
+        dpg.add_text(need, wrap=0, color=colors.get("outdated", [255, 180, 50, 255]))
+        dpg.add_text("", tag=current_tag, color=colors.get("text_dim", [150, 150, 150, 255]))
+        yield
+        dpg.add_spacer(height=4)
+
+
+_ENABLE_TYPES = (
+    "mvButton", "mvCheckbox", "mvCombo", "mvRadioButton", "mvSelectable",
+    "mvSliderFloat", "mvSliderInt", "mvDragFloat", "mvDragInt",
+    "mvInputFloat", "mvInputInt", "mvInputText", "mvColorEdit",
+)
+
+
+def set_controls_enabled(container, enabled):
+    """Enable / grey out every control inside `container` (recursively);
+    the beginner help buttons stay usable."""
+    if not dpg.does_item_exist(container):
+        return
+    for slot in (0, 1):
+        for child in dpg.get_item_children(container, slot) or []:
+            kind = dpg.get_item_type(child).split("::")[-1]
+            if kind in _ENABLE_TYPES and not (
+                kind == "mvButton" and dpg.get_item_label(child) == "\uf059"
+            ):
+                dpg.configure_item(child, enabled=enabled)
+            set_controls_enabled(child, enabled)
+
+
+@contextmanager
 def columns_row(n, width=-FIELD_RIGHT_MARGIN, tag=None):
     """A row of n equal columns (borderless table) ending at `width` (the
     right margin by default): the items of the with-block are its cells, in

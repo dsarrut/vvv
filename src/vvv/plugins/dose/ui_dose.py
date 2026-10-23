@@ -10,6 +10,8 @@ from vvv.ui.ui_components import (
     build_delete_button,
     build_icon_button,
     FIELD_RIGHT_MARGIN,
+    requirement_banner,
+    set_controls_enabled,
 )
 from vvv.utils import compute_adaptive_step_and_speed
 from vvv.ui.ui_scaling import IntensityScalingComponent
@@ -56,31 +58,15 @@ class DosePluginUI(PluginTagMixin):
             # -------------------------------------------------------------
             # 1. REQUIREMENT / INACTIVE STATE BANNER
             # -------------------------------------------------------------
-            with dpg.group(tag=self._t("group_dose_requirement"), show=True):
-                dpg.add_text(
-                    "Dose Unit Required",
-                    color=[255, 255, 255, 255],
-                )
-                dpg.add_spacer(height=4)
-                dpg.add_text(
-                    "This tool is active when the base image or\n"
-                    "fused overlay has a Gy-compatible unit:\n"
-                    "  - Gy\n"
-                    "  - mGy\n"
-                    "  - Gy/decay",
-                    color=cfg_c["text_dim"],
-                )
-                dpg.add_spacer(height=6)
-                dpg.add_text(
-                    "Current: No Gy image selected",
-                    tag=self._t("text_current_units"),
-                    color=cfg_c["text_dim"],
-                )
-                dpg.add_spacer(height=8)
-
+            with requirement_banner(
+                self._t("group_dose_requirement"),
+                "Needs a dose image (Gy, mGy or Gy/decay) as base or fused image.",
+                self._t("text_current_units"),
+                cfg_c,
+            ):
                 btn_enable = dpg.add_button(
                     label="Enable (Set unit to Gy)",
-                    width=-1,
+                    width=-FIELD_RIGHT_MARGIN,
                     callback=self._c.on_enable_clicked,
                     tag=self._t("btn_enable_gy"),
                 )
@@ -101,7 +87,8 @@ class DosePluginUI(PluginTagMixin):
             # -------------------------------------------------------------
             # 2. ACTIVE DOSE STATE CONTENT (Tools Container)
             # -------------------------------------------------------------
-            with dpg.group(tag=self._t("group_dose_content"), show=False):
+            # Always shown, greyed out while no dose image (shows what exists)
+            with dpg.group(tag=self._t("group_dose_content")):
                 with dpg.group(horizontal=True):
                     dpg.add_text("Target: ", color=cfg_c["text_dim"])
                     dpg.add_text(
@@ -326,7 +313,7 @@ class DosePluginUI(PluginTagMixin):
         if is_active and target_vol is not None and target_id is not None:
             # Show active tools container
             dpg.configure_item(self._t("group_dose_requirement"), show=False)
-            dpg.configure_item(self._t("group_dose_content"), show=True)
+            set_controls_enabled(self._t("group_dose_content"), True)  # then per-control states below
 
             role = "Overlay" if is_overlay else "Base"
             display_name = getattr(target_vol, "name", "Image")
@@ -394,7 +381,7 @@ class DosePluginUI(PluginTagMixin):
         else:
             # Show requirement banner
             dpg.configure_item(self._t("group_dose_requirement"), show=True)
-            dpg.configure_item(self._t("group_dose_content"), show=False)
+            set_controls_enabled(self._t("group_dose_content"), False)
 
             viewer = api.get_active_viewer()
             if viewer and viewer.volume:

@@ -1448,3 +1448,17 @@ def test_active_viewer_toggle_fusion_info(headless_gui_app, synthetic_volume_fac
 
 
 
+
+
+def test_nav_buttons_muted_for_tools_not_applicable(headless_gui_app):
+    """Dose / DVF do not apply to a plain scalar image: muted nav buttons."""
+    controller, gui, viewer, _ = headless_gui_app
+    gui.build_vertical_nav()
+    themes = {t: dpg.get_item_theme(f"nav_btn_{t}") for _, t in gui.nav_items}
+    assert themes.get("dose_plugin") == "theme_rounded_nav_muted"
+    assert themes.get("dvf") == "theme_rounded_nav_muted"
+    assert themes.get("intensity_plugin") == "theme_rounded_nav"
+
+    viewer.volume.unit = "Gy"  # now a dose image
+    gui.build_vertical_nav()
+    assert dpg.get_item_theme("nav_btn_dose_plugin") == "theme_rounded_nav"

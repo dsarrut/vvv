@@ -97,7 +97,10 @@ class TestDosePlugin(unittest.TestCase):
         req_tag = self.plugin._ui._t("group_dose_requirement")
         content_tag = self.plugin._ui._t("group_dose_content")
         self.assertTrue(dpg.is_item_shown(req_tag))
-        self.assertFalse(dpg.is_item_shown(content_tag))
+        # The tools stay visible, greyed out (the user sees what exists)
+        self.assertTrue(dpg.is_item_shown(content_tag))
+        reset_btn = self.plugin._ui._t("btn_reset_levels")
+        self.assertFalse(dpg.get_item_configuration(reset_btn)["enabled"])
 
     def test_active_when_base_has_gy(self):
         self.mock_viewer.volume.unit = "Gy"
@@ -112,6 +115,8 @@ class TestDosePlugin(unittest.TestCase):
         content_tag = self.plugin._ui._t("group_dose_content")
         self.assertFalse(dpg.is_item_shown(req_tag))
         self.assertTrue(dpg.is_item_shown(content_tag))
+        reset_btn = self.plugin._ui._t("btn_reset_levels")
+        self.assertTrue(dpg.get_item_configuration(reset_btn)["enabled"])
 
     def test_enable_button_assigns_gy_to_base(self):
         self.mock_viewer.volume.unit = "HU"

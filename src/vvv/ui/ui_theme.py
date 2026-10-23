@@ -332,6 +332,13 @@ def register_dynamic_themes(ui_cfg, controller):
             with dpg.theme_component(dpg.mvButton):
                 dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 6)
 
+    # Nav button of a tool that does not apply to the current image (still clickable)
+    if not dpg.does_item_exist("theme_rounded_nav_muted"):
+        with dpg.theme(tag="theme_rounded_nav_muted"):
+            with dpg.theme_component(dpg.mvButton):
+                dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 6)
+                dpg.add_theme_color(dpg.mvThemeCol_Text, cfg_c["text_muted"])
+
     if not dpg.does_item_exist("theme_ws_nav_btn"):
         with dpg.theme(tag="theme_ws_nav_btn"):
             with dpg.theme_component(dpg.mvButton):

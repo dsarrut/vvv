@@ -457,10 +457,7 @@ class MainGUI:
                         user_data=tag,
                         callback=self.on_nav_clicked,
                     )
-                    dpg.bind_item_theme(btn, "theme_rounded_nav")
-                    is_active = tag == self.active_tab
-                    if is_active and dpg.does_item_exist("active_nav_button_theme"):
-                        dpg.bind_item_theme(btn, "active_nav_button_theme")
+                    self._bind_nav_theme(tag)
                     if tag in tooltip_texts:
                         build_beginner_tooltip(btn, tooltip_texts[tag], self)
 
@@ -715,6 +712,31 @@ class MainGUI:
                     dpg.add_input_text(tag="info_memory", readonly=True, width=-1)
                 dpg.add_spacer(height=5)
                 self.build_visibility_controls()
+
+    def _nav_applicable(self, tag):
+        """False for a tool (plugin with is_applicable) that does not apply to
+        the current image: its nav button is muted, still clickable."""
+        plugin = next((p for p in self.plugins if p.plugin_id == tag), None)
+        check = getattr(plugin, "is_applicable", None)
+        if check is None:
+            return True
+        try:
+            return bool(check(self.plugin_api))
+        except Exception:
+            return True
+
+    def _bind_nav_theme(self, tag):
+        btn = f"nav_btn_{tag}"
+        if not dpg.does_item_exist(btn):
+            return
+        if tag == getattr(self, "active_tab", None):
+            theme = "active_nav_button_theme"
+        elif not self._nav_applicable(tag):
+            theme = "theme_rounded_nav_muted"
+        else:
+            theme = "theme_rounded_nav"
+        if dpg.does_item_exist(theme):
+            dpg.bind_item_theme(btn, theme)
 
     def _fit_nav_button_height(self, column_h):
         """Nav button height so the tool buttons, the workspace icons and the
@@ -1596,14 +1618,7 @@ class MainGUI:
 
         # 1. Update Button Highlighting & Show/Hide Content
         for name, tag in self.nav_items:
-            btn_tag = f"nav_btn_{tag}"
-            if dpg.does_item_exist(btn_tag):
-                if tag == target_tab_tag and dpg.does_item_exist(
-                    "active_nav_button_theme"
-                ):
-                    dpg.bind_item_theme(btn_tag, "active_nav_button_theme")
-                else:
-                    dpg.bind_item_theme(btn_tag, "theme_rounded_nav")
+            self._bind_nav_theme(tag)
             self._safe_configure(tag, show=(tag == target_tab_tag))
 
         # 2. Trigger the old UI layout logic
