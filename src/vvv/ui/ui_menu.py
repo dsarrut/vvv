@@ -82,6 +82,12 @@ def build_menu_bar(gui):
                     show=False,
                     callback=gui.on_save_workspace_current_clicked,
                 )
+                dpg.add_menu_item(
+                    label="Reload Workspace",
+                    tag="menu_reload_workspace",
+                    show=False,
+                    callback=gui.on_reload_workspace_clicked,
+                )
 
             with dpg.menu(label="System", tag="menu_system"):
                 with dpg.menu(label="Rendering Options"):

@@ -99,6 +99,8 @@ class MainGUI:
         self.folded_panels = set(saved or [])
         self.sync_label_tags = {}
         self.current_workspace_path: str | None = None
+        # Images loaded (or saved) by the current workspace: a reload replaces them
+        self.workspace_image_ids: set = set()
         self.is_beginner_mode = bool(
             self.controller.settings.data.get("behavior", {}).get("beginner_mode", False)
         )
@@ -2323,6 +2325,7 @@ class MainGUI:
 
             self.controller.file.save_workspace(file_path, self.workspace_view())
             self.current_workspace_path = file_path
+            self.workspace_image_ids = set(self.controller.view_states)
             self.refresh_workspace_bar()
             self.show_status_message(f"Workspace saved: {os.path.basename(file_path)}")
 
@@ -2341,6 +2344,7 @@ class MainGUI:
     ):
         if self.current_workspace_path:
             self.controller.file.save_workspace(self.current_workspace_path, self.workspace_view())
+            self.workspace_image_ids = set(self.controller.view_states)
             self.refresh_workspace_bar()
             self.show_status_message(
                 f"Workspace saved: {os.path.basename(self.current_workspace_path)}"
@@ -2349,25 +2353,42 @@ class MainGUI:
         else:
             self.on_save_workspace_clicked()
 
+    def on_reload_workspace_clicked(self, sender=None, app_data=None, user_data=None):
+        path = self.current_workspace_path
+        if not path:
+            return
+        if not os.path.exists(path):
+            self.show_status_message(
+                f"Workspace not found: {os.path.basename(path)}",
+                color=[255, 100, 100],
+            )
+            return
+        self.reload_workspace()
+
+    def reload_workspace(self):
+        """Close the images of the current workspace and load it again; other
+        images (another workspace, opened by hand) are kept."""
+        path = self.current_workspace_path
+        if not path:
+            return
+        for vs_id in list(self.workspace_image_ids):
+            if vs_id in self.controller.view_states:
+                self.controller.file.close_image(vs_id)
+        self.workspace_image_ids = set()
+        self.tasks.append(load_workspace_sequence(self, self.controller, path))
+
     def refresh_workspace_bar(self):
         """Sync the nav-column workspace icons and the menu item with current state."""
         has_path = bool(self.current_workspace_path)
 
-        # --- Nav: enable/disable Save icon and show current filename ---
+        # --- Nav: Save / Reload icons only with a workspace file ---
         self._safe_configure("ws_nav_btn_save", show=has_path)
-        if self.current_workspace_path:
-            name = os.path.basename(self.current_workspace_path)
-            self._safe_set("ws_nav_filename_text", name)
-            self._safe_configure("ws_nav_filename_text", show=True, indent=5)
-            self._safe_set("ws_nav_path_tooltip", self.current_workspace_path)
-        else:
-            self._safe_set("ws_nav_filename_text", "")
-            self._safe_configure("ws_nav_filename_text", show=False)
-            self._safe_set("ws_nav_path_tooltip", "")
+        self._safe_configure("ws_nav_btn_reload", show=has_path)
 
-        # --- Nav: update Save tooltip with filename + content summary ---
+        # --- Nav: Save / Reload tooltips name the file (path + content summary) ---
         if self.current_workspace_path:
-            name = os.path.basename(self.current_workspace_path)
+            path = self.current_workspace_path
+            name = os.path.basename(path)
             n_images = len(getattr(self.controller, "volumes", {}))
             n_rois = sum(
                 len(getattr(vs, "rois", []))
@@ -2379,15 +2400,27 @@ class MainGUI:
             if n_rois:
                 parts.append(f"{n_rois} ROI{'s' if n_rois != 1 else ''}")
             summary = "  ·  ".join(parts) if parts else ""
-            self._safe_set("ws_save_tooltip_text", f"Save Workspace\n{name}\n{summary}")
+            self._safe_set(
+                "ws_save_tooltip_text", f"Save Workspace: {name}\n{path}\n{summary}"
+            )
+            self._safe_set(
+                "ws_reload_tooltip_text",
+                f"Reload Workspace: {name}\n{path}\n"
+                "back to its last saved state (other images stay open)",
+            )
             self._safe_configure(
                 "menu_save_workspace", show=True, label=f"Save Workspace ({name})"
+            )
+            self._safe_configure(
+                "menu_reload_workspace", show=True, label=f"Reload Workspace ({name})"
             )
         else:
             self._safe_set(
                 "ws_save_tooltip_text", "Save Workspace\n(no workspace open)"
             )
+            self._safe_set("ws_reload_tooltip_text", "Reload Workspace")
             self._safe_configure("menu_save_workspace", show=False)
+            self._safe_configure("menu_reload_workspace", show=False)
 
     def on_global_reset_clicked(self, sender=None, app_data=None, user_data=None):
         for vs_id in self.controller.view_states:

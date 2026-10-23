@@ -1504,3 +1504,39 @@ def test_threshold_step_buttons_turn_threshold_on(
     )
     assert ov_vs.display.min_threshold is not None
     assert dpg.get_value("check_fusion_threshold") is True
+
+
+def test_reload_workspace_replaces_only_its_images(
+    headless_gui_app, synthetic_volume_factory, tmp_path
+):
+    """U9: Reload closes the images of the current workspace and loads it again
+    (as saved); images from elsewhere (opened by hand, another workspace) stay."""
+    controller, gui, viewer, base_id = headless_gui_app
+    hand_ids = set(controller.view_states)  # the fixture images, opened by hand
+    n = len(hand_ids)
+
+    ws_path = str(tmp_path / "ws.vvw")
+    controller.file.save_workspace(ws_path, gui.workspace_view())
+    for task in [gui.load_workspace_sequence(ws_path)]:
+        list(task)
+    ws_ids = set(gui.workspace_image_ids)
+    assert len(ws_ids) == n and not ws_ids & hand_ids
+
+    other_id = controller.file.load_image(
+        synthetic_volume_factory("other.nii.gz", val=7.0)
+    )
+    changed = next(iter(ws_ids))
+    saved_ww = controller.view_states[changed].display.ww
+    controller.view_states[changed].display.ww = saved_ww + 123.0
+
+    gui.tasks.clear()
+    gui.on_reload_workspace_clicked()  # no confirmation
+    for task in gui.tasks:
+        list(task)
+
+    ids = set(controller.view_states)
+    assert hand_ids | {other_id} <= ids  # kept
+    assert not ws_ids & ids  # replaced
+    new_ws = set(gui.workspace_image_ids)
+    assert len(new_ws) == n and new_ws <= ids and len(ids) == 2 * n + 1
+    assert all(controller.view_states[i].display.ww == saved_ww for i in new_ws)

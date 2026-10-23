@@ -1677,6 +1677,10 @@ def load_workspace_sequence(gui, controller, filepath):
     controller._flag_all_viewers_dirty()
 
     if gui:
+        # What a reload of this workspace replaces (other images are kept)
+        gui.workspace_image_ids = set(id_map.values()) | set(
+            legacy_overlay_map.values()
+        )
         for plugin in gui.plugins:
             if hasattr(plugin, "_controller") and hasattr(
                 plugin._controller, "clear_viewer_cache"

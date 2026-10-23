@@ -6,6 +6,7 @@ from vvv.ui.ui_components import get_tooltip_delay
 _ICON_OPEN = "\uf07c"  # fa-folder-open
 _ICON_SAVE = "\uf0c7"  # fa-save (floppy disk)
 _ICON_SAVE_AS = "\ue001"  # custom: floppy disk with down arrow badge
+_ICON_RELOAD = "\uf01e"  # fa-repeat: reload from disk, as in the other panels
 
 
 def build_workspace_nav_icons(gui):
@@ -20,6 +21,7 @@ def build_workspace_nav_icons(gui):
         [  📁  ]   Open Workspace
         [  💾  ]   Save Workspace (shown only when a path is set)
         [  📥  ]   Save Workspace As
+        [  ⟳  ]   Reload Workspace (shown only when a path is set)
     """
     cfg_l = gui.ui_cfg["layout"]
     btn_h = cfg_l["nav_btn_h"]
@@ -55,13 +57,20 @@ def build_workspace_nav_icons(gui):
                 gui.on_save_workspace_clicked,
                 None,
             ),
+            (
+                "ws_nav_btn_reload",
+                _ICON_RELOAD,
+                "Reload Workspace",
+                gui.on_reload_workspace_clicked,
+                "ws_reload_tooltip_text",
+            ),
         ]:
             btn = dpg.add_button(
                 label=icon,
                 tag=tag,
                 width=-1,
                 height=btn_h,
-                show=(tag != "ws_nav_btn_save"),
+                show=(tag not in ("ws_nav_btn_save", "ws_nav_btn_reload")),
                 callback=cb,
             )
             dpg.bind_item_theme(btn, "theme_ws_nav_btn")
@@ -92,27 +101,3 @@ def build_workspace_nav_icons(gui):
                 if not hasattr(gui, "beginner_tags"):
                     gui.beginner_tags = []
                 gui.beginner_tags.append(desc_id)
-
-            if tag == "ws_nav_btn_save":
-                txt = dpg.add_text(
-                    "", tag="ws_nav_filename_text", color=cfg_c["text_dim"]
-                )
-                if dpg.does_item_exist("small_font_tag"):
-                    dpg.bind_item_font(txt, "small_font_tag")
-                try:
-                    with dpg.item_handler_registry() as txt_handler:
-                        dpg.add_item_clicked_handler(
-                            callback=gui.on_save_workspace_current_clicked
-                        )
-                    dpg.bind_item_handler_registry(txt, txt_handler)
-                except Exception:
-                    pass
-                try:
-                    tt_ws = dpg.add_tooltip(
-                        txt, show=getattr(gui, "is_beginner_mode", False)
-                    )
-                    if hasattr(gui, "beginner_tags"):
-                        gui.beginner_tags.append(tt_ws)
-                    dpg.add_text("", tag="ws_nav_path_tooltip", parent=tt_ws)
-                except (Exception, SystemError):
-                    pass
