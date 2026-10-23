@@ -269,3 +269,28 @@ def test_check_inputs_with_workspaces(dummy_images, tmp_path):
     assert check_inputs(parse_cli_arguments([ct]), [missing_ws]) is True  # ct opens
     assert check_inputs([], [missing_ws, str(ws)]) is True
     assert check_inputs([], [missing_ws]) is False
+
+
+def test_cli_comma_and_plus_inside_file_names(dummy_images):
+    """',' / '+' inside an existing file name are part of the name; the other
+    ones still separate overlays / labels (longest existing name wins)."""
+    ct = dummy_images("ct.mhd", size=(5, 5, 5))
+    comma = dummy_images("my,ct.mhd", size=(5, 5, 5))
+    plus = dummy_images("a+b.mhd", size=(5, 5, 5))
+    lab = dummy_images("lab.mhd", size=(5, 5, 5))
+
+    def parse(*args):
+        return [
+            (t["base"], (t["fusion"] or {}).get("path"), t["labels"], t["sync_group"])
+            for t in parse_cli_arguments(list(args))
+        ]
+
+    assert parse(comma) == [(comma, None, [], 0)]
+    assert parse(f"{plus},{ct}") == [(plus, ct, [], 0)]
+    assert parse(f"{ct},{comma},hot") == [(ct, comma, [], 0)]
+    assert parse(f"{plus}+{lab}") == [(plus, None, [lab], 0)]
+    assert parse(ct, "+", plus) == [(ct, None, [plus], 0)]
+    assert parse(f"1:{comma},{ct}") == [(comma, ct, [], 1)]
+    assert parse(f"{ct},", f"{comma},", "hot") == [(ct, comma, [], 0)]
+    (t,) = parse_cli_arguments([f"{ct},{comma},hot"])
+    assert t["fusion"]["cmap"] == "Hot"

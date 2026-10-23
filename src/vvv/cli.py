@@ -112,6 +112,44 @@ def _parse_colormap(text, default):
     return name
 
 
+# ',' and '+' inside an existing file name are not separators: they are
+# replaced by these (never in a path) while parsing, then restored
+_IN_NAME = {",": "\x00", "+": "\x01"}
+
+
+def _protect_names(arg):
+    """Hide the ',' / '+' of the existing files named in an argument: the
+    longest run of pieces that is an existing path is one name."""
+    sync = re.match(r"^\d+:", arg)
+    prefix = sync.group(0) if sync else ""
+    toks = re.split(r"([,+])", arg[len(prefix):])
+    texts, seps = toks[0::2], toks[1::2]
+
+    def join(i, k, protect=False):
+        out = texts[i]
+        for m in range(i, k - 1):
+            out += (_IN_NAME[seps[m]] if protect else seps[m]) + texts[m + 1]
+        return out
+
+    out, i = prefix, 0
+    while i < len(texts):
+        j = next(
+            (k for k in range(len(texts), i + 1, -1) if os.path.exists(join(i, k))),
+            i + 1,
+        )
+        out += join(i, j, protect=True)
+        if j - 1 < len(seps):
+            out += seps[j - 1]
+        i = j
+    return out
+
+
+def _restore_names(text):
+    for sep, mark in _IN_NAME.items():
+        text = text.replace(mark, sep)
+    return text
+
+
 def parse_cli_arguments(datasets):
     """
     Parses raw command line arguments into structured image tasks.
@@ -122,12 +160,12 @@ def parse_cli_arguments(datasets):
     import numpy as np
 
     # 1. Normalize datasets by splitting any tokens containing '+'
-    #    (not an existing file whose name holds a '+')
+    #    (not the '+' / ',' inside an existing file name)
     normalized_datasets = []
-    for item in datasets:
+    for item in map(_protect_names, datasets):
         if item == "+":
             normalized_datasets.append("+")
-        elif "+" in item and not os.path.exists(item):
+        elif "+" in item:
             parts = item.split("+")
             for i, part in enumerate(parts):
                 if i > 0:
@@ -150,7 +188,7 @@ def parse_cli_arguments(datasets):
             if clean_datasets:
                 clean_datasets[-1][1].append(item)
             else:
-                _warn(f"labels {item} given before any image, ignored")
+                _warn(f"labels {_restore_names(item)} given before any image, ignored")
             expect_label = False
         else:
             clean_datasets.append([item, []])
@@ -194,7 +232,7 @@ def parse_cli_arguments(datasets):
     seq_prefixes = VolumeData.SEQUENCE_PREFIXES
     for item, item_labels in clean_datasets:
         is_4d_tag = item.upper() in seq_prefixes
-        clean_item = item.rstrip(",:")
+        clean_item = _restore_names(item.rstrip(",:"))
 
         expecting_more = len(buf) > 0 and (
             buf[-1].endswith(",")
@@ -253,12 +291,13 @@ def parse_cli_arguments(datasets):
             base_part = match.group(2)
 
         task: dict[str, Any] = {
-            "base": base_part,
+            "base": _restore_names(base_part),
             "fusion": None,
             "sync_group": sync_group,
             "base_cmap": None,
-            "labels": list(ds_labels),
+            "labels": [_restore_names(lbl) for lbl in ds_labels],
         }
+        ds = _restore_names(ds)  # for the messages
 
         if len(parts) > 1:
             overlay_path = parts[1].strip()
@@ -279,7 +318,7 @@ def parse_cli_arguments(datasets):
 
             if overlay_path:
                 task["fusion"] = {
-                    "path": overlay_path,
+                    "path": _restore_names(overlay_path),
                     "cmap": cmap,
                     "mode": mode,
                     "opacity": _parse_number(opacity_text, "opacity", 0.5, 0.0, 1.0),
