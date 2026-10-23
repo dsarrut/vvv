@@ -9,7 +9,7 @@ VVV supports simultaneous display of multiple segmentation masks, organ contours
 ## Loading ROIs
 
 You can load segmentation volumes and ROIs in several ways:
-* **Drag and Drop**: Drop 3D binary or multilabel labelmaps (`.nii`, `.nii.gz`, `.mhd`, `.nrrd`) directly onto any viewer.
+* **Drag and Drop**: Drop 3D binary or multilabel labelmaps (`.nii`, `.nii.gz`, `.mhd`, `.nrrd`) directly onto any viewer. The label names and colors of a label map come from its `.json` [side-car file](doc_17_side_car_files.md) (`labels.json` for `labels.nii.gz`), which is also written when ROIs are saved as one multi-label image.
 * **Images Tab**: In the **Images** panel, select an image and assign it as an ROI mask.
 * **CLI**: Launch with multiple `-r` or `--roi` flags:
   ```bash

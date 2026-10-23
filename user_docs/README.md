@@ -17,5 +17,6 @@
 * **[doc_14_dvf.md](doc_14_dvf.md)**: Displacement Vector Fields (DVF)
 * **[doc_15_dicom.md](doc_15_dicom.md)**: DICOM Browser & Series Loading
 * **[doc_16_dose.md](doc_16_dose.md)**: Radiation Dose & Isodoses
+* **[doc_17_side_car_files.md](doc_17_side_car_files.md)**: Side-Car Files (unit, label names, transform next to an image)
 
 ---

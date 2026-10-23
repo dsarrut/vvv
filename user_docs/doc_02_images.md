@@ -74,7 +74,7 @@ When clicking on any viewport, it becomes the **Active Viewer** (highlighted bor
 ### Physical Metadata & Base/Fusion Toggle
 * **⇄ (Toggle Base / Fusion Info)**: When a Fusion overlay is loaded in the active viewer, an icon button `⇄` appears directly to the left of the image name. Clicking this button toggles the panel display between the **Base image** metadata and the **Fusion overlay image** metadata (viewport display and slice axis buttons remain unchanged).
 * **Type**: Voxel data type (e.g. `int16`, `float32`).
-* **Unit**: Physical intensity unit. Click the dropdown arrow <kbd>▾</kbd> to assign presets (`HU`, `SUV`, `Gy`, `Bq/mL`, `counts`, `a.u.`) or type a custom unit.
+* **Unit**: Physical intensity unit. Click the dropdown arrow <kbd>▾</kbd> to assign presets (`HU`, `SUV`, `Gy`, `Bq/mL`, `counts`, `a.u.`) or type a custom unit. Its source follows in brackets, e.g. `(ct.json)`: the unit is kept in a [side-car file](doc_17_side_car_files.md) next to the image. After a change, a save icon writes the unit alone to that file.
 * **Size**: Voxel grid dimensions $(N_x \times N_y \times N_z)$.
 * **Spacing**: Physical voxel spacing $(\Delta x, \Delta y, \Delta z)$ in mm.
 * **Origin**: Real-world physical origin $(X_0, Y_0, Z_0)$ in mm.

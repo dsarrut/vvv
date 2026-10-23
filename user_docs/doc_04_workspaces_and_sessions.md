@@ -13,7 +13,7 @@ A workspace file stores the entire state of your session in a clean, human-reada
 * **Viewer Configurations**: Multi-viewer layout (1, 2, 3, or 4 panels), assigned images, slice orientations (Axial, Coronal, Sagittal), zoom, and pan.
 * **Synchronization Links**: Active synchronized viewer groups.
 * **Radiometry & Visualization**: Window/Level settings, colormaps, opacity, and threshold bounds.
-* **Analysis States**: Active landmarks, line profiles, and registration transforms.
+* **Analysis States**: Active landmarks and line profiles. Registration transforms are not stored: a transform saved next to its image (`ct.tfm`, a [side-car file](doc_17_side_car_files.md)) is applied again when the workspace is opened.
 
 ### Saving & Loading
 * **Save Workspace**: In the **Images** or **File** menu, click **Save Workspace** (or press <kbd>Ctrl + S</kbd> / <kbd>Cmd + S</kbd>).
