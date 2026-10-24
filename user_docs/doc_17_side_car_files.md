@@ -2,6 +2,8 @@
 
 A side-car file sits next to an image and has the same name, with another extension. VVV reads it when it loads the image and writes it when you save. It keeps what the image file format cannot hold: the voxel unit, the names and colors of the labels of a label map, and the registration transform.
 
+![Transform side-car](images/doc_17_sidecar.png)
+
 ---
 
 ## Which Files
@@ -47,6 +49,8 @@ One file can hold the unit and the labels:
 ---
 
 ## Where VVV Tells You
+
+![Unit from the side-car file](images/doc_17_unit.png)
 
 * **Active Viewer**: `Unit: HU (ct.json)`; hover `(ct.json)` for its full path. After you change the unit it shows `(modified, unsaved)` and a save icon: the icon writes only the unit to the `.json` file (the image is not rewritten).
 * **Save messages**: `Saved: ct.nii.gz (+ ct.json)`, and the same for a label map.
