@@ -7,6 +7,7 @@
 ## Core Concepts
 
 ### 1. Viewers vs. Images
+
 * **Images (Volumes)**: the images loaded in memory; you can load many at once. Each gets a number, shown as `(1)`, `(2)` ... before its name: it never changes while the image is open.
 * **Viewers**: the display panes, in a layout of **1**, **2** (side by side) or **4** viewers (layout icons at the right of the menu bar).
 * **Active Viewer**: the viewer you clicked last (highlighted border); the side panels show its image. Keyboard shortcuts and the mouse wheel act on the viewer under the mouse, or on the active viewer when the mouse is elsewhere.
@@ -15,10 +16,12 @@
   * A second image can be fused on top as an **Overlay** (e.g. PET on CT, dose on CT, or a registered follow-up MRI).
 
 ### 2. Coordinate Spaces
+
 * **Physical Space (mm)**: real-world millimeter coordinates. Synchronization, the crosshair and registration work in physical space, whatever the resolution, voxel size or orientation of the images.
 * **Voxel Space**: the integer grid indices `(i, j, k)`.
 
 ### 3. Synchronization
+
 * Images can be linked: moving the crosshair, panning / zooming, changing Window/Level or the 4D frame in one viewer updates the linked ones (see [Synchronization](doc_05_synchronisation.md)).
 
 ---
@@ -74,6 +77,7 @@ The keys can be changed in **Settings**. The **Help** window lists them as they 
 ## Command-Line Interface (CLI)
 
 VVV is usually launched from a terminal, with its images:
+
 * Open several images: `vvv ct.nii.gz pet.nii.gz`
 * Fuse an overlay, with a colormap and an opacity: `vvv ct.nii.gz,pet.nii.gz,hot,0.6`
 * Open a workspace: `vvv session.vvw`
