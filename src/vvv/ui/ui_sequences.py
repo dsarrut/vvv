@@ -1668,6 +1668,7 @@ def load_workspace_sequence(gui, controller, filepath):
         gui.workspace_image_ids = set(id_map.values()) | set(
             legacy_overlay_map.values()
         )
+        gui.workspace_id_map = dict(id_map)  # workspace image id -> loaded id
         for plugin in gui.plugins:
             if hasattr(plugin, "_controller") and hasattr(
                 plugin._controller, "clear_viewer_cache"

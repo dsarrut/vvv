@@ -1205,6 +1205,32 @@ class OverlayDrawer:
                             parent=viewer.legend_tag,
                         )
 
+    def contour_sources(self):
+        """What is drawn as contours on the viewer: the view state's contours
+        (threshold preview, ...), the overlay's (dose isocontours) and the
+        visible ROIs in contour mode. Each has .polygons, .color, .thickness."""
+        viewer = self.viewer
+        contour_dict = getattr(viewer.view_state, "contours", {})
+        contour_rois = list(contour_dict.values())
+
+        # Include contours from active overlay (e.g. dose isocontours when dose is fused over base image)
+        ov_id = getattr(getattr(viewer.view_state.display, "overlay", None), "image_id", None)
+        if ov_id is not None and viewer.controller and hasattr(viewer.controller, "view_states"):
+            ov_vs = viewer.controller.view_states.get(ov_id) or viewer.controller.view_states.get(str(ov_id))
+            if ov_vs:
+                if hasattr(ov_vs, "contours"):
+                    contour_rois.extend(ov_vs.contours.values())
+                if hasattr(ov_vs, "rois"):
+                    for r_id, r_state in list(ov_vs.rois.items()):
+                        if r_state.visible and getattr(r_state, "is_contour", False):
+                            contour_rois.append(r_state)
+
+        # Include ROIs in contour mode
+        for r_id, r_state in list(viewer.view_state.rois.items()):
+            if r_state.visible and getattr(r_state, "is_contour", False):
+                contour_rois.append(r_state)
+        return contour_rois
+
     def draw_contours(self):
         viewer = self.viewer
 
@@ -1226,25 +1252,7 @@ class OverlayDrawer:
         if not dpg.does_item_exist(node):
             return
 
-        contour_dict = getattr(viewer.view_state, "contours", {})
-        contour_rois = list(contour_dict.values())
-
-        # Include contours from active overlay (e.g. dose isocontours when dose is fused over base image)
-        ov_id = getattr(getattr(viewer.view_state.display, "overlay", None), "image_id", None)
-        if ov_id is not None and viewer.controller and hasattr(viewer.controller, "view_states"):
-            ov_vs = viewer.controller.view_states.get(ov_id) or viewer.controller.view_states.get(str(ov_id))
-            if ov_vs:
-                if hasattr(ov_vs, "contours"):
-                    contour_rois.extend(ov_vs.contours.values())
-                if hasattr(ov_vs, "rois"):
-                    for r_id, r_state in list(ov_vs.rois.items()):
-                        if r_state.visible and getattr(r_state, "is_contour", False):
-                            contour_rois.append(r_state)
-
-        # Include ROIs in contour mode
-        for r_id, r_state in list(viewer.view_state.rois.items()):
-            if r_state.visible and getattr(r_state, "is_contour", False):
-                contour_rois.append(r_state)
+        contour_rois = self.contour_sources()
 
         # ROBUST CACHE INVALIDATION
         # We must track colors, thickness, and exact math states so DPG knows when to redraw!

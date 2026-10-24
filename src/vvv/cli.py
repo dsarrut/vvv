@@ -417,6 +417,27 @@ def check_inputs(image_tasks, workspace_files=()):
     return n_ok > 0 or not (image_tasks or workspace_files)
 
 
+def run_screenshots(workspace_files, image_tasks, shots_path):
+    """vvv session.vvw --screenshots shots.json: the exit status (0: all saved)."""
+    if len(workspace_files) != 1 or image_tasks:
+        _warn("--screenshots needs exactly one workspace (.vvw) and no other file")
+        return 2
+    for path, what in ((workspace_files[0], "workspace"), (shots_path, "screenshot list")):
+        if not os.path.isfile(path):
+            _warn(f"cannot open {what} {path}")
+            return 2
+    from vvv.screenshot import vvv_screenshot
+
+    try:
+        failures = vvv_screenshot(workspace_files[0], shots_path)
+    except (ValueError, OSError) as e:  # an invalid screenshot list
+        _warn(f"{shots_path}: {e}")
+        return 2
+    if failures:
+        _warn(f"{failures} screenshot(s) not saved")
+    return 1 if failures else 0
+
+
 def boot_sequence(gui, image_tasks, workspace_files, sync=False, link_wl=False):
     """Images first, then each workspace in order: the last one takes precedence
     (layout, active viewer, Save / Reload target), the others keep their images."""
@@ -440,7 +461,14 @@ def boot_sequence(gui, image_tasks, workspace_files, sync=False, link_wl=False):
 )
 @click.option("--debug", is_flag=True, help="Show FPS debug overlay with graph, print debug messages, raise on internal errors.")
 @click.option("--fast-gl/--no-fast-gl", default=True, help="Enable/disable fast GL nearest-neighbor (Linux/Windows).")
-def main(no_history, datasets, linkall, sync, linkall_wl, debug, fast_gl):
+@click.option(
+    "--screenshots",
+    "screenshots",
+    metavar="SHOTS.json",
+    default=None,
+    help="With one workspace: save the PNG screenshots listed in SHOTS.json, then exit.",
+)
+def main(no_history, datasets, linkall, sync, linkall_wl, debug, fast_gl, screenshots):
     """VVV — multi-image medical viewer.
 
     \b
@@ -476,6 +504,8 @@ def main(no_history, datasets, linkall, sync, linkall_wl, debug, fast_gl):
 
     \b
     WORKSPACE
+      vvv session.vvw --screenshots shots.json
+                                           save the PNG screenshots of shots.json, then exit
       vvv session.vvw                      restore a previously saved workspace
       vvv ct.nii a.vvw b.vvw               images first, then each workspace in order;
                                            the last one sets the layout (and is the one
@@ -503,6 +533,9 @@ def main(no_history, datasets, linkall, sync, linkall_wl, debug, fast_gl):
     image_tasks = parse_cli_arguments(
         [f for f in datasets if not f.lower().endswith(".vvw")]
     )
+
+    if screenshots:
+        sys.exit(run_screenshots(workspace_files, image_tasks, screenshots))
 
     # Do not open a window if none of the given images can be opened
     if not check_inputs(image_tasks, workspace_files):

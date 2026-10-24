@@ -152,5 +152,6 @@ With several workspaces, all their images are loaded; the last workspace sets th
 | `--no-history` | `-nh` | Ignore cached camera/contrast history and launch with defaults |
 | `--fast-gl` / `--no-fast-gl` | | Hardware nearest-neighbor zoom (on by default; Linux and Windows only) |
 | `--debug` | | FPS overlay with graph, debug messages, and stop on internal errors |
+| `--screenshots SHOTS.json` | | With one workspace: save the PNG screenshots listed in `SHOTS.json`, then exit (see [Workspaces](doc_04_workspaces_and_sessions.md)) |
 | `--help` | `-h` | Display the built-in CLI help text |
 

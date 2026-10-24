@@ -46,6 +46,35 @@ VVV provides flexible tools for exporting clean, publication-ready figures:
     ```
   * If neither utility is installed, VVV gracefully falls back to automatically saving the captured image to `~/Pictures/vvv_screenshot_<timestamp>.png` (or `~/vvv_screenshot_<timestamp>.png`).
 
-### 2. Automated Screenshots
-Generating figures from a workspace without the interactive window is not available yet from the command line (planned).
+### 2. Screenshots from a Workspace (command line)
+Make figures from a saved workspace, e.g. in a script:
+
+```bash
+vvv my_session.vvw --screenshots shots.json
+```
+
+VVV opens the workspace (a window shows briefly), saves one PNG per entry of `shots.json`, then exits. The exit status is 0 when all are saved, 1 when some could not be made (they are reported), 2 for a wrong command or an invalid `shots.json`.
+
+```json
+{
+  "defaults": {"image": "ct.nii.gz", "fov_mm": [200, 150]},
+  "screenshots": [
+    {"output": "axial.png"},
+    {"output": "coronal.png", "orientation": "coronal"},
+    {"output": "spect.png", "image": 2, "position_mm": [10.5, -40.0, 120.0], "orientation": "XY"}
+  ]
+}
+```
+
+| Field | Description | Default |
+| :--- | :--- | :--- |
+| **output** | the PNG file (`.png` added if missing) | required |
+| **image** | the image: its workspace id (a string, e.g. `"1"`), its file name (`"ct.nii.gz"`), or its number (an integer, `2`, as shown `(2)` in the image list) | the image of the active viewer |
+| **orientation** | `axial` / `XY`, `coronal` / `XZ`, `sagittal` / `YZ` | the orientation of the active viewer |
+| **position_mm** | the point `[x, y, z]` in mm: it gives the slice, and the center of the `fov_mm` crop | the crosshair saved in the workspace |
+| **fov_mm** | crop to `[width, height]` mm around the position | the whole slice |
+
+`defaults` holds the values shared by all the entries. An unknown image is an error for that entry (the others are still saved).
+
+The PNG is the slice at the image resolution (square pixels, at the smallest voxel spacing), with the workspace display: window / level, colormap, the fused overlay, the filled ROIs, and the contours (ROIs in contour mode, isodose lines, threshold preview) with their colors and thickness. The crosshair, the legend, the text and the other annotations are not drawn.
 
