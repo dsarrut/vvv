@@ -162,9 +162,11 @@ def build_icon_button(
     user_data=None,
     enabled=True,
     show=True,
+    shortcut=None,
     **kwargs,
 ):
-    """Creates a standardized icon button with optional always-on tooltip (U15.1, U21)."""
+    """Creates a standardized icon button with optional always-on tooltip (U15.1, U21);
+    shortcut: a key map action whose key the tooltip shows (F2)."""
     if icon is None and label is not None:
         icon = label
     if gui is None and api is not None:
@@ -184,7 +186,7 @@ def build_icon_button(
     if theme and dpg.does_item_exist(theme):
         dpg.bind_item_theme(btn, theme)
     if tooltip and gui:
-        build_tooltip(btn, tooltip, gui, always_on=True)
+        build_tooltip(btn, tooltip, gui, always_on=True, shortcut=shortcut)
     return btn
 
 
@@ -465,7 +467,75 @@ def set_item_show(item, show, gui=None):
                 dpg.configure_item(tt_tag, show=tt_show)
 
 
-def build_tooltip(parent, text, gui, tag=None, text_tag=None, always_on=True):
+# --- Shortcut keys in tooltips and menus (F2) ---
+# Virtual actions: a modifier with the key of another action
+_SHIFTED_ACTIONS = {"sync_all_wl": "sync_all", "hard_reset": "reset_view"}
+_KEY_NAMES = {517: "Page Up", 518: "Page Down", "Up": "↑", "Down": "↓", "Left": "←", "Right": "→"}
+
+
+def _real_gui(gui):
+    return getattr(gui, "_gui", gui) if gui is not None else None
+
+
+def shortcut_key(gui, action):
+    """The key of a shortcut action as shown to the user ('K', 'Shift+S',
+    'Cmd+O' / 'Ctrl+O', 'Page Up'), from the current key map; '' if none."""
+    g = _real_gui(gui)
+    try:
+        keys = g.controller.settings.data["shortcuts"]
+    except (AttributeError, KeyError, TypeError):
+        return ""
+    base = _SHIFTED_ACTIONS.get(action, action)
+    val = keys.get(base)
+    if val in (None, ""):
+        return ""
+    name = _KEY_NAMES.get(val, str(val))
+    if action in _SHIFTED_ACTIONS:
+        return f"Shift+{name}"
+    if action == "open_file":
+        import sys
+
+        return f"{'Cmd' if sys.platform == 'darwin' else 'Ctrl'}+{name}"
+    return name
+
+
+def _with_shortcut(gui, text, action):
+    key = shortcut_key(gui, action)
+    return f"{text} ({key})" if key else text
+
+
+def register_shortcut_hint(gui, item, text, action, kind="text"):
+    """Keep `item` showing the key of `action` when it changes in Settings:
+    kind 'text' (a text item: `text (key)`) or 'menu' (a menu item's shortcut)."""
+    g = _real_gui(gui)
+    if g is None:
+        return
+    if not isinstance(getattr(g, "shortcut_hints", None), list):
+        g.shortcut_hints = []
+    g.shortcut_hints.append((item, text, action, kind))
+
+
+def refresh_shortcut_hints(gui):
+    """Show the current keys in the registered tooltips and menus."""
+    g = _real_gui(gui)
+    hints = getattr(g, "shortcut_hints", None) or []
+    for item, text, action, kind in hints:
+        if not dpg.does_item_exist(item):
+            continue
+        if kind == "menu":
+            dpg.configure_item(item, shortcut=shortcut_key(g, action))
+        else:
+            dpg.set_value(item, _with_shortcut(g, text, action))
+
+
+def add_menu_shortcut(gui, item, action):
+    """Show the key of `action` in a menu item (kept up to date)."""
+    if dpg.does_item_exist(item):
+        dpg.configure_item(item, shortcut=shortcut_key(gui, action))
+    register_shortcut_hint(gui, item, None, action, kind="menu")
+
+
+def build_tooltip(parent, text, gui, tag=None, text_tag=None, always_on=True, shortcut=None):
     """A reusable tooltip attached to an existing widget.
 
     If always_on=True (icon buttons, toolbars):
@@ -476,7 +546,12 @@ def build_tooltip(parent, text, gui, tag=None, text_tag=None, always_on=True):
     If always_on=False (educational tooltips on text/sliders):
         Visible only when Beginner Mode is active (show=is_beginner, delay=0.1s).
         Registered in gui.beginner_tags so toggling beginner mode toggles visibility.
+    shortcut: a key map action (e.g. "add_profile"): its key is added, as
+    "text (P)", and kept up to date when it is changed in Settings.
     """
+    base_text = text
+    if shortcut:
+        text = _with_shortcut(gui, text, shortcut)
     target_gui = getattr(gui, "_gui", gui) if hasattr(gui, "_gui") else gui
     is_beg = getattr(target_gui, "is_beginner_mode", False)
     delay = get_tooltip_delay(target_gui, always_on=always_on)
@@ -511,9 +586,11 @@ def build_tooltip(parent, text, gui, tag=None, text_tag=None, always_on=True):
     )
     try:
         if text_tag:
-            dpg.add_text(text, parent=tt_tag, color=dim_col, tag=text_tag)
+            text_item = dpg.add_text(text, parent=tt_tag, color=dim_col, tag=text_tag)
         else:
-            dpg.add_text(text, parent=tt_tag, color=dim_col)
+            text_item = dpg.add_text(text, parent=tt_tag, color=dim_col)
+        if shortcut:
+            register_shortcut_hint(target_gui, text_item, base_text, shortcut)
     except (Exception, SystemError):
         pass
 
@@ -613,6 +690,27 @@ def set_controls_enabled(container, enabled):
             ):
                 dpg.configure_item(child, enabled=enabled)
             set_controls_enabled(child, enabled)
+
+
+@contextmanager
+def click_menu(parent, mousebutton=dpg.mvMouseButton_Left):
+    """Like dpg.popup, but the menu opens at the mouse from the first click
+    (dpg.popup only shows the window: the first time it opened at the top left
+    of the viewport). The items of the with-block are the menu content."""
+    menu = dpg.add_window(popup=True, show=False, autosize=True, no_title_bar=True)
+
+    def open_menu():
+        x, y = dpg.get_mouse_pos(local=False)
+        dpg.configure_item(menu, pos=[int(x), int(y)], show=True)
+
+    with dpg.item_handler_registry() as reg:
+        dpg.add_item_clicked_handler(mousebutton, callback=open_menu)
+    dpg.bind_item_handler_registry(parent, reg)
+    dpg.push_container_stack(menu)
+    try:
+        yield menu
+    finally:
+        dpg.pop_container_stack()
 
 
 @contextmanager
@@ -781,7 +879,7 @@ def build_stepped_slider(
             dpg.bind_item_theme(btn_minus, "icon_button_theme")
 
         # Hidden Right-Click Menu for Minus
-        with dpg.popup(btn_minus, mousebutton=dpg.mvMouseButton_Right):
+        with click_menu(btn_minus, mousebutton=dpg.mvMouseButton_Right):
             dpg.add_text("Step Speed", color=[150, 150, 150])
             dpg.add_separator()
             dpg.add_selectable(
@@ -808,7 +906,7 @@ def build_stepped_slider(
             dpg.bind_item_theme(btn_plus, "icon_button_theme")
 
         # Hidden Right-Click Menu for Plus
-        with dpg.popup(btn_plus, mousebutton=dpg.mvMouseButton_Right):
+        with click_menu(btn_plus, mousebutton=dpg.mvMouseButton_Right):
             dpg.add_text("Step Speed", color=[150, 150, 150])
             dpg.add_separator()
             dpg.add_selectable(

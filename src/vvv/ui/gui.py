@@ -26,6 +26,7 @@ from vvv.ui.ui_components import (
     LIST_BOTTOM_H,
     build_collapsible_title,
     set_title_folded,
+    click_menu,
 )
 from vvv.ui.ui_sync import build_tab_sync, refresh_sync_ui
 from vvv.ui.file_dialog import open_file_dialog, save_file_dialog
@@ -634,8 +635,7 @@ class MainGUI:
                                 new_unit = None
                             if getattr(vol, "unit", None) != new_unit:
                                 vol.unit = new_unit
-                                vol.unit_source = "modified, unsaved"
-                                vol._is_outdated = True
+                                vol.unit_source = "modified, unsaved"  # saved alone (save icon) or with the image
                                 if dpg.does_item_exist("info_unit_source"):
                                     dpg.set_value(
                                         "info_unit_source", "(modified, unsaved)"
@@ -656,8 +656,7 @@ class MainGUI:
                             new_unit = user_data
                             if getattr(vol, "unit", None) != new_unit:
                                 vol.unit = new_unit
-                                vol.unit_source = "modified, unsaved"
-                                vol._is_outdated = True
+                                vol.unit_source = "modified, unsaved"  # saved alone (save icon) or with the image
                                 if dpg.does_item_exist("input_info_unit"):
                                     dpg.set_value(
                                         "input_info_unit",
@@ -691,7 +690,7 @@ class MainGUI:
                         )
                         if dpg.does_item_exist("icon_font_tag"):
                             dpg.bind_item_font(btn_preset, "icon_font_tag")
-                        with dpg.popup(btn_preset, mousebutton=dpg.mvMouseButton_Left):
+                        with click_menu(btn_preset):
                             dpg.add_text("Standard Presets", color=dim_col)
                             dpg.add_separator()
                             for label, u_val in STANDARD_UNITS:
@@ -703,7 +702,23 @@ class MainGUI:
                         build_tooltip(
                             btn_preset, "Select a standard unit preset", self, always_on=True
                         )
+                        btn_unit_save = dpg.add_button(
+                            label="\uf0c7",
+                            tag="btn_info_unit_save",
+                            width=20,
+                            show=False,
+                            callback=lambda: self.save_unit_sidecar(
+                                self._get_active_viewer_info_target_id()
+                            ),
+                        )
+                        if dpg.does_item_exist("icon_font_tag"):
+                            dpg.bind_item_font(btn_unit_save, "icon_font_tag")
+                        dpg.bind_item_theme(btn_unit_save, "icon_button_theme")
+                        with dpg.tooltip(btn_unit_save):
+                            dpg.add_text("", tag="info_unit_save_tooltip")
                         dpg.add_text("", tag="info_unit_source", color=dim_col)
+                        with dpg.tooltip("info_unit_source"):
+                            dpg.add_text("", tag="info_unit_source_tooltip")
 
                     self.create_labeled_field("Size", tag="info_size")
                     self.create_labeled_field("Spacing", tag="info_spacing")
@@ -922,6 +937,13 @@ class MainGUI:
                         user_data="legend",
                         default_value=False,
                     )
+                for item, text, action in (
+                    ("check_axis", "Slice axis on / off", "toggle_axis"),
+                    ("check_grid", "Voxel grid on / off", "toggle_grid"),
+                    ("check_scalebar", "Scale bar on / off", "toggle_scalebar"),
+                    ("check_legend", "Color legend (off / two styles)", "toggle_legend"),
+                ):
+                    build_tooltip(item, text, self, shortcut=action)
                 with dpg.table_row():
                     with dpg.group(horizontal=True):
                         dpg.add_text("Filename:", color=dim_col)
@@ -941,6 +963,12 @@ class MainGUI:
                             callback=self.on_visibility_toggle,
                             user_data="interpolation",
                             width=55,
+                        )
+                        build_tooltip(
+                            "check_interpolation",
+                            "Pixelated zoom (nearest neighbor) on / off",
+                            self,
+                            shortcut="toggle_interp",
                         )
                         build_help_button(
                             "Interpolation: Linear (smooth), NN (pixelated), or Stripe (extreme zoom).",
@@ -1389,6 +1417,7 @@ class MainGUI:
                 "info_unit_source",
                 f"({source_val})" if source_val and source_val != "Unknown" else "",
             )
+            self._refresh_unit_sidecar_ui(vol)
         if vol.num_timepoints > 1:
             size_str = f"{vol.shape3d[2]} x {vol.shape3d[1]} x {vol.shape3d[0]} x {vol.num_timepoints}"
             if getattr(vol, "is_dvf", False):
@@ -2351,6 +2380,57 @@ class MainGUI:
             self.controller.ui_needs_refresh = True
         else:
             self.on_save_workspace_clicked()
+
+    def _unit_sidecar_path(self, vol):
+        """The json side-car that holds the unit of vol, or None (no file)."""
+        from vvv.core.sidecar import sidecar_path
+
+        paths = getattr(vol, "file_paths", None) or []
+        if not paths or not os.path.isfile(str(paths[0])):
+            return None
+        return sidecar_path(paths[0])
+
+    def _refresh_unit_sidecar_ui(self, vol):
+        """Unit row: the save icon (only for an unsaved unit) and the tooltips
+        that tell where the unit is read from / saved to."""
+        json_path = self._unit_sidecar_path(vol)
+        unsaved = getattr(vol, "unit_source", None) == "modified, unsaved"
+        self._safe_configure("btn_info_unit_save", show=bool(unsaved and json_path))
+        if json_path:
+            name = os.path.basename(json_path)
+            self._safe_set(
+                "info_unit_save_tooltip",
+                f"Save the unit in {name}\n(side-car file next to the image; the image is not rewritten)",
+            )
+        source = getattr(vol, "sidecar_json_path", None)
+        if unsaved:
+            tip = "Unit changed in vvv, not saved yet."
+            if json_path:
+                tip += f"\nSave it alone (save icon) or with the image: it goes to\n{json_path}"
+        elif source and getattr(vol, "unit_source", None) == os.path.basename(source):
+            tip = f"Unit read from the side-car file next to the image:\n{source}\nSaved there again when the image or the unit is saved."
+        else:
+            tip = "Where the unit comes from."
+        self._safe_set("info_unit_source_tooltip", tip)
+
+    def save_unit_sidecar(self, vs_id):
+        """Write only the unit to the image's json side-car (other keys kept)."""
+        from vvv.core.sidecar import update_sidecar
+
+        vol = self.controller.volumes.get(vs_id) if vs_id else None
+        if vol is None or not self._unit_sidecar_path(vol):
+            return
+        try:
+            path = update_sidecar(vol.file_paths[0], {"unit": getattr(vol, "unit", None)})
+        except Exception as e:
+            self.show_status_message(f"Unit not saved: {e}", color=[255, 100, 100])
+            return
+        vol.sidecar_json_path = path
+        vol.unit_source = os.path.basename(path) if (path and vol.unit) else "Unknown"
+        self.show_status_message(
+            f"Unit saved in {os.path.basename(path)}" if path else "Unit removed"
+        )
+        self.controller.ui_needs_refresh = True
 
     def on_reload_workspace_clicked(self, sender=None, app_data=None, user_data=None):
         path = self.current_workspace_path

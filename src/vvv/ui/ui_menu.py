@@ -7,7 +7,7 @@ import shlex
 import dearpygui.dearpygui as dpg
 
 from vvv.ui.render_strategy import GL_NEAREST_SUPPORTED, _NUMBA_AVAILABLE
-from vvv.ui.ui_components import build_beginner_tooltip, build_tooltip
+from vvv.ui.ui_components import add_menu_shortcut, build_beginner_tooltip, build_tooltip
 from vvv.ui.ui_sequences import load_batch_images_sequence, load_single_image_sequence
 
 MISSING_RECENT_COLOR = [255, 140, 0, 255]  # orange
@@ -27,8 +27,11 @@ def build_menu_bar(gui):
         with dpg.menu_bar(tag="main_menu_bar"):
             with dpg.menu(label="File"):
                 dpg.add_menu_item(
-                    label="Open Image(s)...", callback=gui.on_open_file_clicked
+                    label="Open Image(s)...",
+                    tag="menu_open_images",
+                    callback=gui.on_open_file_clicked,
                 )
+                add_menu_shortcut(gui, "menu_open_images", "open_file")
                 with dpg.menu(label="Open Recent...", tag="menu_recent_files"):
                     pass
                 menu_item_dicom = dpg.add_menu_item(
@@ -92,11 +95,12 @@ def build_menu_bar(gui):
             with dpg.menu(label="System", tag="menu_system"):
                 with dpg.menu(label="Rendering Options"):
                     dpg.add_menu_item(
-                        label="NN Interpolation  [K]",
+                        label="NN Interpolation",
                         tag="menu_item_pixelated",
                         check=True,
                         callback=lambda s, a, u: on_menu_pixelated_zoom_toggled(gui, s, a, u),
                     )
+                    add_menu_shortcut(gui, "menu_item_pixelated", "toggle_interp")
                     dpg.add_separator()
                     with dpg.menu(label="NN Options"):
                         lazy_combo = dpg.add_combo(
@@ -385,9 +389,9 @@ def refresh_rendering_menu(gui):
             _vox = "Native" if _is_native else "Resampled"
             _lazy = " + Lazy" if _lazy_on else ""
             _mode_tag = f"{_tex}-{_vox}{_lazy}"
-        nn_label = f"NN: {_mode_tag}  [K]"
+        nn_label = f"NN: {_mode_tag}"
     else:
-        nn_label = "NN Interpolation  [K]"
+        nn_label = "NN Interpolation"
 
     gui._safe_configure("menu_item_pixelated", label=nn_label)
 

@@ -5,6 +5,7 @@ from vvv.ui.ui_components import (
     build_help_button,
     build_beginner_tooltip,
     build_stepped_slider,
+    build_tooltip,
     FIELD_RIGHT_MARGIN,
 )
 from vvv.plugins.plugin_api import PluginTagMixin
@@ -48,10 +49,11 @@ class MIPPluginUI(PluginTagMixin):
                 callback=self._c.on_mip_toggle,
                 default_value=False,
             )
-            build_beginner_tooltip(
+            build_tooltip(
                 chk_mip,
-                "Enables Maximum Intensity Projection rendering.",
+                "Maximum Intensity Projection on / off",
                 api,
+                shortcut="toggle_mip",
             )
 
             # Current orientation display

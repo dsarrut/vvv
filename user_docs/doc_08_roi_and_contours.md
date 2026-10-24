@@ -1,6 +1,6 @@
 # Regions of Interest (ROIs) & Contours
 
-VVV supports simultaneous display of multiple segmentation masks, organ contours, and radiation therapy structure sets (RT-Struct).
+VVV displays several segmentations at once, as filled masks (raster) or contours: binary masks, label maps (one ROI per label) and radiotherapy structure sets (RT-Struct). The ROIs belong to an image: they are listed in the **ROIs** tab for the image of the active viewer.
 
 ![ROI and Contours Interface](images/doc_08_roi_layout.png)
 
@@ -8,46 +8,46 @@ VVV supports simultaneous display of multiple segmentation masks, organ contours
 
 ## Loading ROIs
 
-You can load segmentation volumes and ROIs in several ways:
-* **Drag and Drop**: Drop 3D binary or multilabel labelmaps (`.nii`, `.nii.gz`, `.mhd`, `.nrrd`) directly onto any viewer.
-* **Images Tab**: In the **Images** panel, select an image and assign it as an ROI mask.
-* **CLI**: Launch with multiple `-r` or `--roi` flags:
-  ```bash
-  vvv data/ct.nii.gz -r data/liver.nii.gz -r data/tumor.nii.gz
-  ```
+In the **ROIs** tab:
+
+* **Open RT-Struct...**: a DICOM RT-Struct file; a dialog lets you choose the structures to load.
+* **Open labels...**: a label map (`.nii`, `.nii.gz`, `.mha`, `.mhd`, `.nrrd`, ...): one ROI per label value. The label names and colors come from its `.json` [side-car file](doc_17_side_car_files.md) (`labels.json` for `labels.nii.gz`), when there is one.
+* **Open mask...**: a binary mask. The combo next to it says which voxels belong to the ROI: **Ignore BG (val)** (all voxels except the value given, 0 by default) or **Target FG (val)** (only the voxels with that value).
+* **Command line**: label maps after a `+`: `vvv ct.nii.gz + labels.nii.gz` (see [Command line](doc_03_command_line.md)).
+
+ROIs can also be created in vvv: **Add a simple ROI** creates a sphere (●) or a box (■) centered on the crosshair. The Threshold tool can make a mask image too (see [Thresholding](doc_09_thresholding.md)).
+
+An ROI drawn outside the image grid is reported after loading.
 
 ---
 
 ## The ROI Tab Panel
 
-Switch to the **ROI** tab on the sidebar to manage loaded structures:
+### 1. Saving
+* **Save** (floppy): saves the listed ROIs again, to the file of the last save.
+* **Save As**: saves the listed ROIs either as **one multi-label image + its `.json` side-car** (label names and colors; option: sort the ROIs by volume, largest first, so that nested structures stay visible), or as **one file per ROI** (`<roi name>.nii.gz`; option: crop each ROI to its bounding box).
 
-### 1. Structure List & Controls
-* **Source**: When the ROIs come from more than one file (an RT-Struct, label maps, masks, or ROIs created in vvv), a combo above the name filter lists them, with their number of ROIs. Choose one file to list only its ROIs: the batch buttons then act on that file, so you can reload it or close it. Hover an ROI name to see the file it comes from. After a save (floppy icons next to the load buttons), the saved ROIs come from the new file; the original file is not changed.
-* **Name Filter**: Type part of a name to list only the matching ROIs (case-insensitive); **`!`** inverts the filter (lists the non-matching ones), **X** clears it, the sort button orders the list (A→Z, Z→A, off). The count next to it shows listed / total. The batch buttons act on the listed ROIs (or on the selected ones, if any).
-* **Visibility (Eye Icon)**: Toggle display of individual ROIs on/off.
-* **Color Swatch**: Click to customize the display color for each structure.
-* **Contour Width**: Adjust line thickness for contour outlines.
-* **Opacity**: Slider controlling the transparency of the filled mask overlay.
-* **Display Mode**:
-  * **Contour**: Renders smooth isoline boundaries around the region.
-  * **Raster**: Fills the entire segmented volume as a semi-transparent color mask.
-  * **Both**: Draws both the filled raster region and the highlighted boundary contour.
+After a save, the saved ROIs come from the new file; the original file is not changed.
 
-### 2. ROI Volume Statistics
-Selecting an ROI displays anatomical and quantitative statistics:
-* **Voxel Count**: Total number of positive voxels.
-* **Physical Volume**: Calculated volume in $\text{cm}^3$ (or $\text{mL}$).
-* **Intensity Statistics**: Mean, Min, Max, and Standard Deviation of the underlying base image intensities within the mask.
+### 2. Listing: source, filter, batch buttons
+* **Source**: when the ROIs come from more than one file, a combo lists them: **All sources (N)**, one item per file (e.g. `Labels · organs.nii.gz (3)`), and **Created (N)** for the ROIs made in vvv. Choose one to list only its ROIs.
+* **Name filter**: type part of a name to list only the matching ROIs (case-insensitive). **`!`** inverts the filter, **X** clears it, the sort button orders the list (A→Z, Z→A, off). The count shows listed / total.
+* **Batch buttons** (on the listed ROIs, or on the selected ones if any): color, **Show** (raster), **Contour**, **Hide**, ROI on top of the fusion overlay, statistics windows, **Reload** from disk, clear the selection, **Close**.
+* **Op** / **Thk**: opacity of the filled masks and thickness of the contours, for all the ROIs.
 
----
+### 3. The ROI list
+Each row: the color, the name (click to rename), then the icons:
+* **eye**: show filled / show as contour / hide;
+* **center** the view on the ROI;
+* **statistics** window of the ROI;
+* **reload** (when its file changed on disk), **save**, **delete** (last).
 
-## Shortcuts Summary
+Hover a name to see where the ROI comes from: its file, its label value (label map), and `Name and color from labels.json (side-car file)`.
 
-| Action | Shortcut |
-| :--- | :--- |
-| **Toggle All ROIs Visibility** | <kbd>Alt + R</kbd> |
-| **Cycle Contour / Raster / Both Mode** | <kbd>M</kbd> |
-| **Increase / Decrease Contour Width** | <kbd>[</kbd> / <kbd>]</kbd> |
-| **Toggle Crosshair** | <kbd>C</kbd> |
+Click a ROI to select it (<kbd>Esc</kbd> clears the selection); with the mouse over the list, <kbd>↑</kbd> / <kbd>↓</kbd> move the selection.
 
+### 4. The selected ROI
+Below the list, for the selected ROI: its **Thickness** and **Opacity**, and its statistics on the base image:
+* **Vol** (cc), **Mean**, **Max**, **Min**, **Std**;
+* **Peak**: the 95th percentile of the values inside the ROI;
+* **Mass** (g): the volume times a density estimated from the mean value as for a CT in HU (`mean / 1000 + 1` g/cc), so only meaningful on a CT.

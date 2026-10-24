@@ -70,7 +70,7 @@ class RegistrationPluginUI(PluginTagMixin):
             with dpg.group(tag=self._t("group_registration_controls")):
                 # --- TOP: File Management ---
                 dpg.add_spacer(height=10)
-                # Load -> Save -> Save As -> Reload, then the file name
+                # Load -> Save -> Save As -> Reload -> Unload, then the file name
                 with dpg.group(horizontal=True):
                     build_icon_button(
                         icon="\uf07c",
@@ -102,12 +102,23 @@ class RegistrationPluginUI(PluginTagMixin):
                         api=api,
                         show=False,
                     )
+                    build_icon_button(
+                        icon="\uf00d",
+                        tag=self._t("btn_reg_unload"),
+                        callback=self._c.on_reg_unload_clicked,
+                        tooltip="Unload the transform: the image is shown as read from disk\n"
+                        "(the file is kept; a side-car <image>.tfm is applied again at the next load)",
+                        api=api,
+                        show=False,
+                    )
                     dpg.add_text(
                         "",
                         tag=self._t("text_reg_filename"),
                         color=cfg_c["text_dim"],
                         show=False,
                     )
+                    with dpg.tooltip(self._t("text_reg_filename")):
+                        dpg.add_text("", tag=self._t("text_reg_filename_tooltip"))
                     build_help_button(
                         "A Transform file (.tfm, .mat, .txt) contains a rigid 3D spatial matrix (Translations and Rotations) that aligns this image with another.",
                         api,
@@ -415,13 +426,28 @@ class RegistrationPluginUI(PluginTagMixin):
         tf_file = target_vs.space.transform_file if getattr(target_vs, "space", None) else "None"
         has_transform_file = bool(tf_file and tf_file != "None")
 
+        space = getattr(target_vs, "space", None)
+        from_sidecar = getattr(space, "from_sidecar", False) is True
         if dpg.does_item_exist(file_tag):
             if has_transform_file:
-                dpg.set_value(file_tag, tf_file)
+                dpg.set_value(file_tag, f"{tf_file} (side-car)" if from_sidecar else tf_file)
                 dpg.configure_item(file_tag, show=True)
             else:
                 dpg.set_value(file_tag, "")
                 dpg.configure_item(file_tag, show=False)
+        tip_tag = self._t("text_reg_filename_tooltip")
+        if dpg.does_item_exist(tip_tag) and has_transform_file:
+            full = getattr(space, "full_transform_path", None) or tf_file
+            tip = full
+            if from_sidecar:
+                tip += (
+                    "\nSide-car file next to the image (same name): applied"
+                    "\nautomatically each time the image is loaded"
+                )
+            dpg.set_value(tip_tag, tip)
+        btn_unload_tag = self._t("btn_reg_unload")
+        if dpg.does_item_exist(btn_unload_tag):
+            set_item_show(btn_unload_tag, bool(space and space.transform is not None), api)
 
         if dpg.does_item_exist(btn_save_tag):
             set_item_show(btn_save_tag, has_transform_file, api)

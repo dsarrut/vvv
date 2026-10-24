@@ -75,7 +75,8 @@ class ProfilePluginUI(PluginTagMixin):
                     icon=ICON_ADD,
                     tag=self._t("btn_add"),
                     callback=self._c.on_btn_add_clicked,
-                    tooltip="Add a profile on the active slice (P)",
+                    tooltip="Add a profile on the active slice",
+                    shortcut="add_profile",
                     api=api,
                 )
                 # Plot windows of the profiles of the active image

@@ -1,44 +1,32 @@
 # 1D Line Profiles & Measurements
 
-The Profile tool extracts and plots 1D voxel intensity profiles along arbitrary lines in 2D and 3D space, useful for spatial resolution assessment, edge sharpness, dosimetry verification, and distance measurements.
+The **Profiles** tool plots the voxel values along a line segment, e.g. to check an edge, a resolution, a dose gradient or a value at a given depth.
 
 ![Profiles Interface](images/doc_10_profiles_layout.png)
 
 ---
 
-## Drawing & Adjusting Profiles
+## Adding & Adjusting Profiles
 
-1. Switch to the **Profile** tab in the sidebar.
-2. Click the **+** button or use the drawing shortcut (<kbd>P</kbd>). Next to it, one button opens the plot windows of all profiles (or closes them, when any is open), another gathers the open ones.
-3. Click and drag in any slice viewer to define the line segment from Start $(x_1, y_1, z_1)$ to End $(x_2, y_2, z_2)$.
-4. Interactive handles allow dragging either endpoint or translating the entire line segment.
+Open the **Profiles** tab of the nav column. The profiles belong to the image of the active viewer.
 
----
+* **+** (or <kbd>P</kbd>): adds a horizontal profile line in the middle of the current slice (2/3 of the view width).
+* Drag an **endpoint** of the line to move it, or the **middle** of the line to move the whole segment.
+* Next to **+**: one button opens the plot windows of all profiles (or closes them, when any is open), another gathers the open plot windows at the bottom right of the window.
+* **Show on Image**: shows or hides the profile lines on the viewers.
+* **Name filter**: type part of a name to list only the matching profiles; **`!`** inverts the filter, **X** clears it, the sort button orders the list (A→Z, Z→A, off), and the count shows listed / total.
 
-## Profile Plot Panel
-
-The panel plots voxel intensity vs. physical distance along the line:
-* **Distance Axis**: Physical length in millimeters ($\text{mm}$) along the segment.
-* **Intensity Axis**: True calibrated pixel value ($\text{HU}$, $\text{SUV}$, $\text{Gy}$, or arbitrary).
-* **Multi-Image Profiles**: When fusion overlays or multiple images are loaded, all overlapping modalities are plotted simultaneously with corresponding line colors.
-* **Sampling Resolution**: Line profile samples can be computed using nearest-neighbor or trilinear interpolation.
+Each profile row: its color, its name (click to rename), then the icons: **plot** window, align **horizontal** / **vertical** on the current slice, **snap** the endpoints to the closest voxel centers, **go to** (center the view on the profile), and **delete** (last).
 
 ---
 
-## Measurements & Data Export
+## The Plot Window
 
-* **Euclidean Distance**: Displays exact 3D physical distance between the start and end points.
-* **FWHM / Edge Analysis**: Measure Full Width at Half Maximum or peak-to-peak distances directly from the interactive plot.
-* **Plot window**: the fit button rescales the plot to the data; **Lin** / **Log** shows the Y axis scale (click to switch); the export button saves the profile data (distance, intensity, physical coordinates, voxel indices) to a JSON file for external analysis in Python, MATLAB, or Excel.
+The plot shows the values of the image along the line, versus the distance from the first point in mm. The values are sampled with trilinear interpolation, on the image the profile belongs to.
 
----
+* **P1 (mm)** / **P2 (mm)**: the physical coordinates of the endpoints; type new values to move them. Their voxel coordinates are shown below.
+* The icons of the profile row (plot, horizontal, vertical, snap, go to), plus: move the profile to the **previous** / **next slice**, **copy** the profile to another image, and **delete**.
+* **Fit**: rescales the plot to the data; **Lin** / **Log**: the Y axis scale (click to switch).
+* **Export**: saves the profile to a JSON file: for each point, the distance (mm), the value, the physical position, the voxel coordinates and whether it is inside the image.
 
-## Shortcuts Summary
-
-| Action | Shortcut |
-| :--- | :--- |
-| **Add / Draw Profile** | <kbd>P</kbd> |
-| **Clear Active Profile** | <kbd>Escape</kbd> |
-| **Move Line Handle** | <kbd>Left Click + Drag</kbd> on endpoint handle |
-| **Pan / Zoom Plot** | <kbd>Right Click + Drag</kbd> or <kbd>Scroll</kbd> inside plot widget |
-
+Pan and zoom in the plot with the mouse (drag, wheel), like any plot of vvv.

@@ -16,15 +16,18 @@ The Dose plugin is strictly dedicated to volumes representing absorbed dose or d
   * The active viewer's **Base image** has physical unit **`Gy`**, **`mGy`**, or **`Gy/decay`**.
   * **OR** the active viewer's **Fusion overlay** has unit **`Gy`**, **`mGy`**, or **`Gy/decay`**.
 * **DICOM RTDOSE**: VVV automatically reads `DoseGridScaling` from DICOM RTDOSE series and sets `image.unit = "Gy"`. RTDOSE images therefore satisfy the activation requirement immediately upon loading.
+* **File name**: an image whose file name contains `dose`, with no unit from a [side-car file](doc_17_side_car_files.md) or DICOM, gets the unit `Gy` (shown as `(Inferred (Filename))` next to the unit).
 
 ### Inactive State (Dose Unit Required)
 
-* When neither the base image nor the overlay has a Gy-compatible unit, the panel displays an informational banner:
-  > *"Dose Unit Required: This tool is active when the base image or fused overlay has a Gy-compatible unit: Gy, mGy, or Gy/decay."*
+* When neither the base image nor the overlay has a Gy-compatible unit, the panel shows what it needs above its tools:
+  > *Needs a dose image (Gy, mGy or Gy/decay) as base or fused image.*
+
+  followed by the current images and their units (`Current: Base: ct.nii.gz (HU)`). The tools stay visible but greyed out, and the Dose button of the nav column is muted.
 * An **"Enable (Set unit to Gy)"** button is provided:
   * If an overlay is loaded: assigns unit `Gy` to the overlay volume.
   * Otherwise: assigns unit `Gy` to the base image volume.
-  * Instantly activates the plugin controls.
+  * Instantly activates the plugin controls. The unit is then "(modified, unsaved)": save it alone with the save icon next to the unit in the Active Viewer panel (see [Side-car files](doc_17_side_car_files.md)).
 
 ### Automatic Dose Target
 
@@ -39,26 +42,21 @@ When active, the tool indicates its target dose volume (`Target: <Image Name>`):
 
 The Dose tool features a comprehensive scaling and normalization engine shared with the Intensity component:
 
-### Scaled Range Preview
+The rows of the **Intensity Scaling & Normalization** block:
 
-* **Range**: Displays the real-time dynamic range `[min, max]` of the dose volume, taking into account the active user scale factor.
-
-### User Scale Factor ($S$)
-
-* **Scale factor**: Interactive numeric input (defaults to `1.0`). Allows applying an arbitrary physical multiplier $S$ to raw image values (e.g. converting between units, applying monitor units, or scaling Monte Carlo fractions).
-* Works independently alongside prescription dose normalization.
-
-### Normalization Controls
-
-Easily switch between absolute physical dosimetry and relative clinical percentages:
+* **Range**: the dynamic range `[min, max]` of the dose volume, with the active scale factor.
+* **Scale**: the user scale factor $S$ (default `1.0`): a multiplier of the raw image values (e.g. converting between units, applying monitor units, or scaling Monte Carlo fractions). It works with the normalization below.
+* **Normalize** and the row below it:
 
 | Mode | Control | Behavior |
 | :--- | :--- | :--- |
 | **Absolute** | **None** | Displays absolute dose values in Gy or mGy using the user scale factor. |
-| **Max Normalization** | **Max** | Automatically sets the peak dose voxel across the volume to $100\%$ ($S_{\text{eff}} = 100 / D_{\max}$). Window/Level is adjusted to $[0, 100\%]$. |
-| **Center on Max** | **⌖** | Jumps the 3D crosshair and camera view directly to the coordinates of the maximum dose voxel. |
-| **Prescription** | **Prescription** | Relative normalization setting a specified prescription reference dose (e.g. $50.0\text{ Gy}$) to $100\%$. Opens an input field to configure the prescription value. |
-| **ROI Mean** | **ROI Mean** | *(When an ROI structure is selected)* Normalizes the mean dose inside the chosen contour to $100\%$. |
+| **Max Normalization** | **Max** | Sets the peak dose voxel to $100\%$ ($S_{\text{eff}} = 100 / D_{\max}$). Window/Level is adjusted to $[0, 100\%]$. |
+| **Center on Max** | **⌖** | Jumps the 3D crosshair and camera view to the maximum dose voxel. |
+| **Prescription** | **Prescription** | Sets a prescription reference dose to $100\%$: a **Value** row appears (default $50$, with the unit in the field). |
+| **ROI Mean** | **ROI Mean** | *(Enabled when the image has ROIs)* Sets the mean dose inside an ROI to $100\%$: choose it in the **ROI** row that appears (it shows `ROI Mean: x`). |
+
+* **Status**: the active normalization: `Absolute`, `Max = 100 %`, `Prescription (50 Gy) = 100 %` or `ROI (...) = 100 %`.
 
 ### Actions: Bake & Reset
 
@@ -74,15 +72,15 @@ The **Isodose Contours** engine provides comprehensive dose visualization standa
 ### Top Controls
 
 * **Shading**: Toggles semi-transparent colorwash shading between adjacent isodose levels. Dose voxels below the lowest active level remain transparent so background anatomical structures stay visible.
-* **Opacity**: Unified opacity slider controlling overlay and shader transparency. When dose is an overlay in Fusion mode, it directly controls the fusion overlay opacity (synchronized bidirectionally with the Fusion tab's opacity slider). When Shading (colorwash) is enabled, it defines the colorwash shader transparency. When dose is a base image and shading is turned off, the slider is disabled.
-* **Min Thr**: Stepped slider with an enable/disable checkbox. Cutoff below which dose voxels are rendered transparent (e.g. $< 5\%$ background cutoff).
+* **Opacity** (default 0.5; Shading is off by default, Lines and Sub-Pixel on): Unified opacity slider controlling overlay and shader transparency. When dose is an overlay in Fusion mode, it directly controls the fusion overlay opacity (synchronized bidirectionally with the Fusion tab's opacity slider). When Shading (colorwash) is enabled, it defines the colorwash shader transparency. When dose is a base image and shading is turned off, the slider is disabled.
+* **Min Thr**: a value with <kbd>−</kbd> / <kbd>+</kbd> buttons and an enable checkbox: dose voxels below it are rendered transparent (e.g. $< 5\%$ background cutoff). Changing the value, or a click on <kbd>−</kbd> / <kbd>+</kbd>, turns it on.
 * **Lines**: Toggles sharp 2D isodose contour line overlays in the viewports.
 * **Sub-Pixel**: Uses marching squares linear interpolation for smooth, sub-voxel curves rather than jagged voxel steps.
 * **↺ (Reset Defaults)**: Restores standard clinical radiotherapy isodose levels:
   * $107\%$ (Hot spot / overdose target)
   * $100\%$ (Prescription dose coverage)
   * $95\%$ (Target volume minimum coverage)
-  * $90\%$, $80\%$, $70\%$, $50\%$, $20\%$, $10\%$
+  * $90\%$, $80\%$, $50\%$, $20\%$, $10\%$
 
 ### Managing Individual Levels
 
@@ -133,6 +131,7 @@ Clicking **Show DVH** in the Dose sidebar opens the dedicated analysis window (t
 * **Volume Axis**: Toggle between relative percentage (**Volume: %**) and absolute physical volume in cubic centimeters (**Volume: $\text{cm}^3$**).
 * **Dose Axis**: Toggle between absolute physical dose in Gray (**Dose: Gy**) and relative percentage of prescription reference dose (**Dose: %**).
 * **Interactive Legend**: Toggle the plot legend on or off, and position it across any corner (**Top-Right**, **Top-Left**, **Bottom-Right**, **Bottom-Left**) or outside the plotting area (**Outside**).
+* **Refresh**: computes the DVH again (e.g. after the ROIs or the dose changed). A line at the top shows the dose image (`Dose: <name>`).
 * **Fit** (expand icon): Instantly rescales and pans the graph axes to fit all active curves comfortably.
 
 ### Structure List & Interactive Controls

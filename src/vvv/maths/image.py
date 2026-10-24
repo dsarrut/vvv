@@ -1450,18 +1450,18 @@ class VolumeData:
 
     def _detect_unit_and_source(self):
         """Detects voxel intensity unit and its provenance from sidecar JSON or DICOM."""
+        self.sidecar_json_path = None
+        self.sidecar_error = None
         # 1. Check sidecar JSON
         if self.file_paths:
-            fp = self.file_paths[0]
-            if fp.endswith(".nii.gz"):
-                json_candidate = fp[:-7] + ".json"
-            else:
-                json_candidate = os.path.splitext(fp)[0] + ".json"
+            from vvv.core.sidecar import read_sidecar
 
-            if os.path.isfile(json_candidate):
+            jdata, json_candidate, error = read_sidecar(self.file_paths[0])
+            if error:
+                self.sidecar_error = error  # shown to the user (unreadable side-car)
+                logger.warning(f"Side-car not read: {error}")
+            if jdata is not None:
                 try:
-                    with open(json_candidate, "r", encoding="utf-8") as f:
-                        jdata = json.load(f)
                     if isinstance(jdata, dict):
                         self.sidecar_json_path = json_candidate
                         if "unit" in jdata and jdata["unit"] is not None:

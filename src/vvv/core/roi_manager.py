@@ -491,10 +491,9 @@ class ROIManager:
         mask_vol.path = filepath
         mask_vol._load_kwargs = {"is_roi": True}  # reload() reads it as a label map
 
-        base_path = filepath
-        if base_path.lower().endswith(".gz"):
-            base_path = base_path[:-3]
-        json_path = os.path.splitext(base_path)[0] + ".json"
+        from vvv.core.sidecar import sidecar_path
+
+        json_path = sidecar_path(filepath)
 
         mask_vol.file_paths = [filepath]
         if os.path.exists(json_path):

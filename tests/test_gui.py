@@ -1660,3 +1660,122 @@ def test_translation_shift_all_orientations(headless_gui_app, orientation, t, si
         assert np.sign(moved[0]) == sign
     else:
         assert moved[1] > 0
+
+
+def test_unit_saved_alone_in_the_sidecar(headless_gui_app):
+    """J3: an edited unit is "(modified, unsaved)" with a save icon; saving it
+    writes only the json side-car (other keys kept), not the image; the image
+    itself is not marked as changed."""
+    import json
+
+    controller, gui, viewer, base_id = headless_gui_app
+    vol = controller.volumes[base_id]
+    img_path = vol.file_paths[0]
+    js = img_path[: -len(".nii.gz")] + ".json"
+    with open(js, "w") as f:
+        json.dump({"note": "mine"}, f)
+    mtime = os.path.getmtime(img_path)
+
+    vol.unit, vol.unit_source = "Gy", "modified, unsaved"
+    gui._refresh_unit_sidecar_ui(vol)
+    assert dpg.get_item_configuration("btn_info_unit_save")["show"] is True
+    assert not getattr(vol, "_is_outdated", False)
+
+    gui.save_unit_sidecar(base_id)
+    with open(js) as f:
+        assert json.load(f) == {"note": "mine", "unit": "Gy"}
+    assert os.path.getmtime(img_path) == mtime  # image not rewritten
+    assert vol.unit_source == os.path.basename(js)
+    gui._refresh_unit_sidecar_ui(vol)
+    assert dpg.get_item_configuration("btn_info_unit_save")["show"] is False
+    assert js in dpg.get_value("info_unit_source_tooltip")
+
+
+def test_transform_sidecar_applied_at_load_and_unloaded(headless_gui_app, tmp_path):
+    """J5: <image>.tfm next to an image is applied when it is loaded; Unload
+    removes it (the file is kept) and the next load applies it again."""
+    from vvv.maths.transform_io import TransformIO
+
+    controller, gui, viewer, base_id = headless_gui_app
+    img = str(tmp_path / "moved.nii.gz")
+    sitk.WriteImage(sitk.GetImageFromArray(np.zeros((4, 5, 6), np.float32)), img)
+    tr = sitk.Euler3DTransform()
+    tr.SetTranslation((3.0, -2.0, 1.0))
+    TransformIO.write_transform(tr, str(tmp_path / "moved.tfm"))
+
+    vs_id = controller.file.load_image(img)
+    space = controller.view_states[vs_id].space
+    assert space.is_active and space.from_sidecar
+    assert space.transform_file == "moved.tfm"
+    assert space.transform.GetTranslation() == pytest.approx((3.0, -2.0, 1.0))
+    assert controller.wait_for_jobs(timeout=10)
+
+    controller.unload_transform(vs_id)
+    assert space.transform is None and not space.is_active and not space.from_sidecar
+    assert (tmp_path / "moved.tfm").exists()
+    assert controller.wait_for_jobs(timeout=10)
+
+    again = controller.file.load_image(img)
+    assert controller.view_states[again].space.from_sidecar
+    assert controller.wait_for_jobs(timeout=10)
+
+    # an image without a side-car gets no transform
+    assert controller.view_states[base_id].space.transform is None
+
+
+def test_clear_modifier_overrides_probes_only_real_keys(monkeypatch):
+    """is_key_down on a number that is not a DPG key reads past ImGui's key
+    table (an access violation on a Windows CI run): only real keys are probed."""
+    import vvv.ui.ui_interaction as ui_interaction
+
+    real = {
+        v for n, v in vars(dpg).items() if n.startswith("mvKey_") and isinstance(v, int) and v > 0
+    }
+    probed = []
+    monkeypatch.setattr(ui_interaction, "_original_is_key_down", lambda k: probed.append(k) or False)
+    ui_interaction.clear_modifier_overrides()
+    assert probed and set(probed) <= real
+
+
+def test_shortcut_keys_in_tooltips_follow_the_settings(headless_gui_app):
+    """F2: tooltips / menu items show the key of their action, from the key
+    map, and follow a change in Settings."""
+    import sys
+    from vvv.ui.ui_components import shortcut_key, refresh_shortcut_hints
+
+    controller, gui, viewer, base_id = headless_gui_app
+    keys = controller.settings.data["shortcuts"]
+    assert shortcut_key(gui, "toggle_axis") == keys["toggle_axis"]
+    assert shortcut_key(gui, "sync_all_wl") == f"Shift+{keys['sync_all']}"
+    assert shortcut_key(gui, "open_file").endswith(f"+{keys['open_file']}")
+    assert shortcut_key(gui, "open_file").startswith("Cmd" if sys.platform == "darwin" else "Ctrl")
+    assert shortcut_key(gui, "fast_scroll_up") == "Page Up"
+    assert shortcut_key(gui, "no_such_action") == ""
+
+    hints = {item: (text, action) for item, text, action, kind in gui.shortcut_hints if kind == "text"}
+    axis = next(i for i, (t, a) in hints.items() if a == "toggle_axis")
+    assert dpg.get_value(axis) == f"Slice axis on / off ({keys['toggle_axis']})"
+    assert dpg.get_item_configuration("menu_item_pixelated")["shortcut"] == keys["toggle_interp"]
+
+    old = keys["toggle_axis"]
+    try:
+        keys["toggle_axis"] = "Q"
+        refresh_shortcut_hints(gui)
+        assert dpg.get_value(axis) == "Slice axis on / off (Q)"
+        keys["toggle_axis"] = ""  # no key: no hint
+        refresh_shortcut_hints(gui)
+        assert dpg.get_value(axis) == "Slice axis on / off"
+    finally:
+        keys["toggle_axis"] = old
+        refresh_shortcut_hints(gui)
+
+
+def test_plugin_buttons_show_their_shortcut(headless_gui_app):
+    """F2: the + of profiles / landmarks and the MIP checkbox (built with the
+    plugin API, not the GUI) also register their key."""
+    controller, gui, viewer, base_id = headless_gui_app
+    keys = controller.settings.data["shortcuts"]
+    shown = {action: dpg.get_value(item) for item, _, action, kind in gui.shortcut_hints if kind == "text"}
+    assert shown["add_profile"] == f"Add a profile on the active slice ({keys['add_profile']})"
+    assert shown["add_landmark"] == f"Add a landmark at the crosshair ({keys['add_landmark']})"
+    assert shown["toggle_mip"].endswith(f"({keys['toggle_mip']})")

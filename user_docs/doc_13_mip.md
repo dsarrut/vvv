@@ -1,44 +1,32 @@
 # Maximum Intensity Projection (MIP)
 
-Maximum Intensity Projection (MIP) projects voxels with the highest intensity values along rays through a 3D volume or slab onto a 2D projection plane. It is widely used in nuclear medicine (PET/SPECT) for detecting hot spots and in CT/MR angiography for visualizing vascular structures.
+The **MIP** tool replaces the slice of a viewer by a Maximum Intensity Projection of the whole volume: each pixel shows the highest voxel value along the viewing direction. It is useful for PET / SPECT hot spots, contrast-enhanced vessels or bone.
 
 ![MIP Interface](images/doc_13_mip_layout.png)
 
 ---
 
-## Configuring MIP
+## Using MIP
 
-Open the **MIP** tab in the sidebar:
+Open the **MIP** tab of the nav column. It works on the active viewer.
 
-### 1. Projection Modes
-* **Full Volume MIP**: Casts projection rays through the entire 3D extent of the image.
-* **Slab MIP (Thick Slice)**: Projects only across a user-defined slab thickness centered at the current slice coordinate.
-* **Minimum Intensity Projection (MinIP)**: Projects minimum intensity values (useful for air pathways, lungs, and low-attenuation structures).
-* **Average Intensity Projection (AIP)**: Averages voxel values along the ray path (useful for 4D-CT motion assessment).
+* **MIP Mode**: turns the projection on or off in the active viewer (shortcut <kbd>M</kbd>). The other controls are greyed out while it is off.
+* **Projection Axis**: the viewing direction, given by the viewer orientation (change it with <kbd>F1</kbd> / <kbd>F2</kbd> / <kbd>F3</kbd>).
+* **Depth Cueing** (0–1, default 1): dims the voxels that are far from the projection plane, which gives a sense of depth.
+* **Rotation Angle** (−180° to 180°): turns the projection direction (the volume seems to rotate in front of you), with <kbd>−</kbd> / <kbd>+</kbd> step buttons.
+* **Angle Step** (1°–45°, default 5°): the step of the <kbd>←</kbd> / <kbd>→</kbd> keys.
+* **Invert Contrast**: shows the hot spots dark on a light background.
+* **Cached projections: N**: the number of projections already computed for the viewer; going back to a cached angle is instant.
+* **Save Rotation Movie**: saves an animated GIF of a full 360° turn of the projection, one frame per **Angle Step** (default name `mip_rotation_<image>.gif`).
 
-### 2. Slab Controls
-* **Slab Thickness**: Set the physical slab depth in millimeters ($\text{mm}$).
-* **Projection Angle**: Rotate the projection ray angle dynamically to view the dataset from arbitrary perspectives.
-* **Continuous Rotation**: Play an automated rotational cine loop around the longitudinal axis.
-
----
-
-## Modality Use Cases
-
-| Modality | Mode | Typical Usage |
-| :--- | :--- | :--- |
-| **PET / SPECT** | Full Volume MIP | Whole-body tracer biodistribution, lesion staging, hot-spot detection |
-| **CT Angiography** | Thin Slab MIP ($5\text{--}15\text{ mm}$) | Vessel continuity, stenosis evaluation, aneurysm detection |
-| **Chest CT** | MinIP | Air trapping, bronchiolitis, emphysema assessment |
-| **4D CT** | AIP (Average) | Internal Target Volume (ITV) contouring in radiation oncology |
+If the `numba` package is not installed, a warning tells you that the projection will be slow.
 
 ---
 
-## Shortcuts Summary
+## Keys (while MIP is on)
 
-| Action | Shortcut |
+| Action | Key |
 | :--- | :--- |
-| **Toggle MIP Mode** | Accessible via MIP panel checkbox |
-| **Adjust Slab Thickness** | Slider in MIP tab or <kbd>Shift + Scroll</kbd> (when configured) |
-| **Cycle Slice / Slab Center** | <kbd>Scroll</kbd> or <kbd>Page Up</kbd> / <kbd>Page Down</kbd> |
-
+| Toggle MIP | <kbd>M</kbd> |
+| Rotate the projection by one Angle Step | <kbd>←</kbd> / <kbd>→</kbd> |
+| Previous / next frame of a 4D image | <kbd>↑</kbd> / <kbd>↓</kbd> |

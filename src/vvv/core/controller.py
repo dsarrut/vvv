@@ -202,11 +202,56 @@ class Controller:
 
             vs.space.transform = new_transform
             vs.space.transform_file = os.path.basename(filepath)
+            vs.space.from_sidecar = False  # set by apply_transform_sidecar
             self.invalidate_resample(vs_id)
             return True
         except Exception as e:
             logger.exception(f"Error loading transform: {e}")
             return False
+
+    def apply_transform_sidecar(self, vs_id):
+        """Load and apply the transform side-car of an image (<name>.tfm, else
+        <name>.mat next to it), if there is one. Returns its path or None."""
+        from vvv.core.sidecar import transform_sidecar_path
+
+        vol = self.volumes.get(vs_id)
+        paths = getattr(vol, "file_paths", None) or []
+        if not paths or not os.path.isfile(str(paths[0])):
+            return None
+        path = transform_sidecar_path(paths[0], series=len(paths) > 1)
+        if not path:
+            return None
+        if not self.load_transform(vs_id, path):
+            self._set_status(
+                f"Transform side-car not read: {os.path.basename(path)}", level="warning"
+            )
+            return None
+        vs = self.view_states[vs_id]
+        space = vs.space
+        space.full_transform_path = os.path.abspath(path)
+        space.is_active = True
+        space.from_sidecar = True
+        if vs.camera.crosshair_phys_coord is not None:
+            vs.update_crosshair_from_phys(vs.camera.crosshair_phys_coord)
+        self.resample_image(vs_id)
+        self._set_status(f"Transform applied: {os.path.basename(path)} (side-car)")
+        return path
+
+    def unload_transform(self, vs_id):
+        """Remove the image's transform (its file is kept): the image is shown
+        as read from disk; a side-car is applied again at the next load."""
+        vs = self.view_states.get(vs_id)
+        if not vs:
+            return
+        vs.space.transform = None
+        vs.space.transform_file = "None"
+        vs.space.full_transform_path = None
+        vs.space.is_active = False
+        vs.space.from_sidecar = False
+        self.invalidate_resample(vs_id)
+        vs.reset_preview_rotation()
+        self.resample_image(vs_id)  # base and overlays without the transform
+        self.update_all_viewers_of_image(vs_id)
 
     def save_transform(self, vs_id, filepath):
         vs = self.view_states.get(vs_id)
@@ -394,7 +439,9 @@ class Controller:
 
             def _commit():
                 self._apply_saved_state(vol, filepath, state)
-                self._set_status(f"Saved: {name}")
+                json_path = state.get("sidecar_json_path")
+                side = f" (+ {os.path.basename(json_path)})" if json_path else ""
+                self._set_status(f"Saved: {name}{side}")
                 if on_done:
                     try:
                         on_done()
@@ -422,32 +469,18 @@ class Controller:
 
         sitk.WriteImage(img, filepath)
 
-        # Update or create sidecar JSON if unit is set or sidecar exists
-        if filepath.endswith(".nii.gz"):
-            json_path = filepath[:-7] + ".json"
-        else:
-            json_path = os.path.splitext(filepath)[0] + ".json"
+        # The unit goes to the side-car json (other keys kept)
+        from vvv.core.sidecar import update_sidecar
 
         state = {}
-        if unit_val is not None or os.path.isfile(json_path):
-            try:
-                jdata = {}
-                if os.path.isfile(json_path):
-                    with open(json_path, "r", encoding="utf-8") as f:
-                        jdata = json.load(f)
-                    if not isinstance(jdata, dict):
-                        jdata = {}
+        try:
+            json_path = update_sidecar(filepath, {"unit": unit_val or None})
+            if json_path:
+                state["sidecar_json_path"] = json_path
                 if unit_val:
-                    jdata["unit"] = unit_val
-                elif "unit" in jdata:
-                    del jdata["unit"]
-                if jdata:
-                    write_json_atomic(json_path, jdata)
-                    state["sidecar_json_path"] = json_path
-                    if unit_val:
-                        state["unit_source"] = os.path.basename(json_path)
-            except Exception as e:
-                logger.warning(f"Failed to write sidecar JSON {json_path}: {e}")
+                    state["unit_source"] = os.path.basename(json_path)
+        except Exception as e:
+            logger.warning(f"Side-car json of {filepath} not written: {e}")
         return state
 
     @staticmethod

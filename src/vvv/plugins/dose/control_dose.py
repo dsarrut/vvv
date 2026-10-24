@@ -244,8 +244,7 @@ class DosePluginController(PluginTagMixin):
 
         if target_vol:
             target_vol.unit = "Gy"
-            target_vol.unit_source = "modified, unsaved"
-            target_vol._is_outdated = True
+            target_vol.unit_source = "modified, unsaved"  # saved alone or with the image
 
             for v in self._api.get_viewers().values():
                 v.is_geometry_dirty = True

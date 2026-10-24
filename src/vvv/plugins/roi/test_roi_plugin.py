@@ -3161,6 +3161,13 @@ class TestRoiPlugin(unittest.TestCase):
             "From: organs.nii.gz (label 3)\n/a/organs.nii.gz",
         )
         self.assertTrue(source_tooltip(rois["r4"], vols["r4"]).startswith("Created"))
+        # names / colors from the json side-car of the label map
+        vols["r1"].file_paths = ["/a/organs.nii.gz", "/a/organs.json"]
+        self.assertTrue(
+            source_tooltip(rois["r1"], vols["r1"]).endswith(
+                "\nName and color from organs.json (side-car file)"
+            )
+        )
 
     def test_saved_rois_come_from_the_saved_file(self):
         """U17: after a batch save, the saved ROIs come from the new file

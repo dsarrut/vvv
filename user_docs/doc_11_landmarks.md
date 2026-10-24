@@ -1,45 +1,34 @@
 # 3D Point Landmarks & Navigation
 
-VVV enables placing, labeling, measuring, and navigating anatomical and fiducial 3D point landmarks across multi-modality volumes.
+The **Landmarks** tool places named 3D points (in mm) on an image, e.g. anatomical or fiducial points, and lets you go back to them.
 
 ![Landmarks Interface](images/doc_11_landmarks_layout.png)
 
 ---
 
-## Placing & Managing Landmarks
+## Placing Landmarks
 
-Open the **Landmark** tab on the sidebar:
+Open the **Landmarks** tab of the nav column. The landmarks belong to the image of the active viewer.
 
-### 1. Adding Points
-* Click the **+** button (adds a landmark at the crosshair, also <kbd>Space</kbd>) or hold <kbd>Shift + Left Click</kbd> at any point in any 2D viewer slice.
-* A 3D marker is registered at the exact physical coordinates $(X, Y, Z)$ in millimeters.
-* Markers are projected onto all active viewers, rendering crosshairs and numeric identifiers.
-
-### 2. Point Table & Navigation
-* **Jump to Landmark**: Click on any row in the landmarks table to instantly center all synchronized slice viewers on that 3D coordinate.
-* **Rename & Label**: Assign descriptive anatomical names (e.g., `Bifurcation`, `Apex`, `Tumor Center`).
-* **Color Coding**: Customize marker colors individually or by group.
-* **Delete / Clear**: Remove individual points or reset the list.
-* **Name Filter**: Type part of a name to list only the matching landmarks (case-insensitive); **`!`** inverts the filter (lists the non-matching ones), **X** clears it, the sort button orders the list (A→Z, Z→A, off). The count next to it shows listed / total. The batch buttons (color, show / hide, names, snap, delete) act on the listed landmarks.
+* **+** (or <kbd>Space</kbd>): adds a landmark at the crosshair position.
+* **Drag** a landmark on the image to move it.
+* A landmark is drawn on its slice, and fades on the nearby slices.
 
 ---
 
-## 3D Distance Measurements & Export
+## The Landmarks Panel
 
-* **Point-to-Point Distances**: Select two landmarks to calculate their 3D Euclidean distance:
-  $$d = \sqrt{(x_2 - x_1)^2 + (y_2 - y_1)^2 + (z_2 - z_1)^2}$$
-* **Import / Export**:
-  * **Export CSV / JSON**: Save landmark positions and labels for registration evaluation (TRE - Target Registration Error) or anatomical reporting.
-  * **Load Landmarks**: Read external landmark files formatted in CSV or ITK/Slicer fiducial formats.
+### Toolbar
+**+**, **Enhanced visualization** (larger markers on the nearby slices with depth arrows `^` / `v`, high-contrast labels, a longer slice range), **Load**, **Save**, **Save As**, **Reload** (shown when the file changed on disk), then the file name.
 
----
+* **Load**: a `.json` or `.csv` file.
+* **Save** / **Save As**: the format follows the extension: `.json` (default name `landmarks_<image>.json`) or `.csv` (columns `ID, Name, X_mm, Y_mm, Z_mm, Color_R, Color_G, Color_B, Color_A, ...`).
 
-## Shortcuts Summary
+### Listing and batch actions
+* **Name filter**: type part of a name to list only the matching landmarks; **`!`** inverts the filter, **X** clears it, the sort button orders the list (A→Z, Z→A, off), and the count shows listed / total.
+* **Batch buttons**, on the listed landmarks: color, reset colors, show / hide, show / hide names, snap to the voxel centers, delete (last).
 
-| Action | Shortcut |
-| :--- | :--- |
-| **Add Landmark at Cursor** | <kbd>Shift + Left Click</kbd> |
-| **Jump to Next Landmark** | <kbd>N</kbd> |
-| **Jump to Previous Landmark** | <kbd>Shift + N</kbd> |
-| **Delete Selected Landmark** | <kbd>Delete</kbd> / <kbd>Backspace</kbd> |
+### The list
+Each row: the color, the name (click to rename), then the icons: **show / hide**, **show / hide the name**, **snap** to the nearest voxel center, **go to** (move the crosshair to the landmark), and **delete** (last).
 
+The landmarks are saved in workspaces.

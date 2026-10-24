@@ -36,9 +36,11 @@ vvv <base>[,<overlay>][,<colormap>][,<opacity>][,<min_threshold>]
 | :--- | :--- | :--- |
 | **base** | Base image path | Required |
 | **overlay** | Fused overlay image path | Optional |
-| **colormap** | Overlay colormap | `Jet`, `Hot`, `Cold`, `Dosimetry`, `Grayscale`, `Segmentation`, `Reg` |
-| **opacity** | Blending alpha ($0.0$ to $1.0$) | `0.5` |
-| **min_threshold** | Clip overlay below this intensity | None |
+| **colormap** | Overlay colormap (any case), or `reg` / `registration` for the Registration fusion mode (red / green) | `jet` (default), `hot`, `cold`, `dosimetry`, `grayscale`, `segmentation` |
+| **opacity** | Blending alpha ($0.0$ to $1.0$; out of range: clamped) | `0.5` |
+| **min_threshold** | Overlay voxels below this value are not shown | None |
+
+Without an overlay (empty second field), the colormap and the threshold apply to the base image: `vvv spect.nii.gz,,hot,,0.5`.
 
 ### Examples
 
@@ -52,7 +54,7 @@ vvv ct.nii.gz,spect.nii.gz,hot,0.7
 # Clip low background intensities (threshold at 150)
 vvv ct.nii.gz,spect.nii.gz,hot,0.6,150
 
-# Checkerboard registration mode (linked W/L, grayscale)
+# Registration fusion mode (red / green, grayscale colormaps)
 vvv fixed.nii.gz,moving.nii.gz,reg
 
 # Apply a colormap to the base image without an overlay (empty second slot)
@@ -103,9 +105,16 @@ Stack multiple 3D timeframes into an interactive 4D volume:
 # Explicit 4D sequence tag
 vvv 4D phase0.nii.gz phase1.nii.gz phase2.nii.gz phase3.nii.gz
 
-# Shell glob (automatically grouped if volumes share identical dimensions and spacing)
-vvv frame_*.nii.gz
+# Shell glob: the sequence stops at the first file with another size or spacing
+vvv 4D frame_*.nii.gz
+
+# End a sequence with // (or ::, stop:, end:), then other images
+vvv 4D phase*.nii.gz // ct.nii.gz
 ```
+
+* The tag can also be written `4D:`, `SEQ`, `SEQUENCE` (any case).
+* Without a tag, files are separate images, even when they have the same size.
+* A `4D` tag after an image starts a new item: `vvv ct.nii.gz 4D phase*.nii.gz` opens the CT and the sequence.
 
 ---
 
@@ -115,7 +124,21 @@ Restore a complete workspace session (`.vvw`) saved from a previous run:
 
 ```bash
 vvv my_analysis.vvw
+
+# Images first, then each workspace in order
+vvv ct.nii.gz a.vvw b.vvw
 ```
+
+With several workspaces, all their images are loaded; the last workspace sets the layout and the active viewer, and is the one **Save** / **Reload** act on. See [Workspaces](doc_04_workspaces_and_sessions.md).
+
+---
+
+## How the Arguments Are Read
+
+* **Missing or unreadable files** are reported (`vvv: cannot open ...`) and the rest is opened; if nothing at all can be opened, vvv does not start.
+* **`,` and `+` inside an existing file name** are part of the name: `vvv my,ct.nii` opens one image, `vvv a+b.nii,pet.nii` is `a+b.nii` with the overlay `pet.nii`.
+* **Labels** go to the image just before the `+` (`vvv ct.nii + organs.nii.gz mr.nii`: the labels are on the CT only). A `+` with nothing after it, or before any image, is reported and ignored.
+* **Bad values** (`hot,abc`, an unknown colormap, extra fields) are reported and replaced by the default.
 
 ---
 
@@ -124,9 +147,11 @@ vvv my_analysis.vvw
 | Flag | Short | Description |
 | :--- | :--- | :--- |
 | `--sync` | `-s` | Enable spatial synchronization across all images at startup |
+| `--linkall` | `-l` | Same as `--sync` (from the old `vv`) |
 | `--linkall-wl` | `-lw` | Enable Window/Level synchronization across all images |
 | `--no-history` | `-nh` | Ignore cached camera/contrast history and launch with defaults |
-| `--fast-gl` / `--no-fast-gl` | | Toggle hardware OpenGL nearest-neighbor texture filtering |
-| `--debug` | | Display live FPS counter and performance graph overlay |
+| `--fast-gl` / `--no-fast-gl` | | Hardware nearest-neighbor zoom (on by default; Linux and Windows only) |
+| `--debug` | | FPS overlay with graph, debug messages, and stop on internal errors |
+| `--screenshots SHOTS.json` | | With one workspace: save the PNG screenshots listed in `SHOTS.json`, then exit (see [Workspaces](doc_04_workspaces_and_sessions.md)) |
 | `--help` | `-h` | Display the built-in CLI help text |
 

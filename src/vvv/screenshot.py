@@ -37,25 +37,29 @@ def _resolve_orientation(name: str) -> ViewMode:
 from vvv.ui.ui_capture import copy_image_to_clipboard, capture_whole_window
 
 
-def vvv_screenshot(vvw_path: str, sc_json_path: str):
+def vvv_screenshot(vvw_path: str, sc_json_path: str) -> int:
     """
     Loads VVV with a workspace and generates screenshots based on a JSON configuration.
+    Returns the number of screenshots that could not be made (0: all saved).
 
     The workspace (.vvw) provides all rendering state: intensity window/level,
-    colormaps, fusion overlays, ROI contours, etc.
+    colormaps, fusion overlays, ROIs and contours, etc.
 
     JSON format:
     {
       "defaults": {                        // optional shared defaults
-        "image_id": "img_1",
+        "image": "ct.nii.gz",
         "fov_mm": [156, 148]
       },
       "screenshots": [
         {
-          "position_mm": [x, y, z],        // required
-          "orientation": "XY",             // required: XY, XZ, YZ, axial, coronal, sagittal
           "output": "my_screenshot.png",   // required
-          "image_id": "img_1",             // optional (overrides defaults)
+          "position_mm": [x, y, z],        // optional: default the workspace crosshair
+          "orientation": "XY",             // optional (XY, XZ, YZ, axial, coronal,
+                                           //   sagittal): default the active viewer's
+          "image": "ct.nii.gz",            // optional: workspace image id (string),
+                                           //   file name, or image number (integer);
+                                           //   default the active viewer's image
           "fov_mm": [w, h]                 // optional (overrides defaults)
         }
       ]
@@ -77,14 +81,14 @@ def vvv_screenshot(vvw_path: str, sc_json_path: str):
     for i, entry in enumerate(screenshots):
         merged = {**defaults, **entry}  # entry values override defaults
         pos = merged.get("position_mm")
-        if not pos or len(pos) != 3:
+        if pos is not None and len(pos) != 3:
             raise ValueError(f"Screenshot [{i}]: 'position_mm' must be [x, y, z].")
-        if "orientation" not in merged:
-            raise ValueError(f"Screenshot [{i}]: 'orientation' is required.")
         if "output" not in merged:
             raise ValueError(f"Screenshot [{i}]: 'output' is required.")
         # Resolve orientation now to catch errors early
-        merged["_orientation"] = _resolve_orientation(merged["orientation"])
+        merged["_orientation"] = (
+            _resolve_orientation(merged["orientation"]) if "orientation" in merged else None
+        )
         # Auto-append .png if missing
         if not merged["output"].lower().endswith(".png"):
             merged["output"] += ".png"
@@ -158,9 +162,15 @@ def vvv_screenshot(vvw_path: str, sc_json_path: str):
                 pass
         time.sleep(0.02)
 
-    # 4. Process each screenshot entry
+    # 4. Process each screenshot entry (defaults: the workspace's active view)
+    failures = 0
     for entry in entries:
-        _process_entry(controller, entry)
+        try:
+            ok = _process_entry(controller, gui, entry)
+        except Exception as e:
+            logger.error(f"Screenshot '{entry['output']}' failed: {e}")
+            ok = False
+        failures += 0 if ok else 1
 
     # Clean up controller resources & background threads
     if hasattr(gui, "plugins") and gui.plugins:
@@ -187,31 +197,58 @@ def vvv_screenshot(vvw_path: str, sc_json_path: str):
             dpg.destroy_context()
         except Exception:
             pass
+    return failures
 
 
-def _process_entry(controller, entry):
-    """Process a single screenshot entry: set crosshair, render ALL viewers, capture one."""
-    position_mm = entry["position_mm"]
-    orientation = entry["_orientation"]
-    output_path = entry["output"]
-    image_id = entry.get("image_id")
-    fov_mm = entry.get("fov_mm")
-
-    # Resolve image_id
-    target_vs_id = image_id
-    if target_vs_id and target_vs_id not in controller.view_states:
-        logger.warning(
-            f"image_id='{image_id}' not found in workspace "
-            f"(loaded image ids: {list(controller.view_states.keys())}); "
-            f"falling back to the first loaded image for '{output_path}'."
+def _resolve_image(controller, gui, spec):
+    """The loaded image id an entry names: a workspace image id (string), a
+    file name, or an image number (integer). None for an unknown name."""
+    if isinstance(spec, int) and not isinstance(spec, bool):
+        return next(
+            (v for v in controller.view_states if controller.image_number(v) == spec), None
         )
-        target_vs_id = None
-    if not target_vs_id and controller.view_states:
-        target_vs_id = list(controller.view_states.keys())[0]
+    spec = str(spec)
+    ws_map = getattr(gui, "workspace_id_map", {}) or {}
+    if spec in ws_map and ws_map[spec] in controller.view_states:
+        return ws_map[spec]
+    for v, vs in controller.view_states.items():
+        paths = getattr(vs.volume, "file_paths", None) or []
+        names = {getattr(vs.volume, "name", None)} | {os.path.basename(str(p)) for p in paths}
+        if spec in names:
+            return v
+    return None
 
+
+def _process_entry(controller, gui, entry):
+    """Process a single screenshot entry: set crosshair, render ALL viewers, capture one."""
+    output_path = entry["output"]
+    fov_mm = entry.get("fov_mm")
+    active = gui.context_viewer if gui.context_viewer and gui.context_viewer.image_id else None
+
+    # The image: named in the entry, else the active viewer's
+    spec = entry.get("image", entry.get("image_id"))
+    if spec is not None:
+        target_vs_id = _resolve_image(controller, gui, spec)
+        if target_vs_id is None:
+            logger.error(f"Screenshot '{output_path}': no image '{spec}' in the workspace.")
+            return False
+    elif active:
+        target_vs_id = active.image_id
+    else:
+        target_vs_id = next(iter(controller.view_states), None)
     if target_vs_id not in controller.view_states:
-        logger.warning(f"No view state for image_id='{image_id}', skipping '{output_path}'.")
-        return
+        logger.error(f"Screenshot '{output_path}': no image to capture.")
+        return False
+
+    vs_target = controller.view_states[target_vs_id]
+    orientation = entry["_orientation"]
+    if orientation is None:
+        orientation = active.orientation if active else ViewMode.AXIAL
+    position_mm = entry.get("position_mm") or vs_target.camera.crosshair_phys_coord
+    if position_mm is None:
+        logger.error(f"Screenshot '{output_path}': no position.")
+        return False
+    position_mm = [float(c) for c in position_mm]
 
     # 1. Find or repurpose a viewer for the target image_id and orientation
     viewer = None
@@ -245,21 +282,23 @@ def _process_entry(controller, entry):
             v.set_current_slice_to_crosshair()
             v.center_on_physical_coord(position_mm)
             v.update_render(force_reblend=True)
+    viewer.update_overlays_and_decorations()  # computes the contours of the slice
 
-    _capture_and_save(viewer, output_path, fov_mm)
+    return _capture_and_save(viewer, output_path, fov_mm)
 
 
 def _capture_and_save(viewer, output_path, fov_mm):
-    """Capture a viewer's rendered texture and save to a single PNG file."""
+    """Capture a viewer's rendered texture and save to a single PNG file.
+    Returns True when the file is written."""
 
     if viewer.last_rgba_flat is None:
-        logger.warning(f"No render data for '{output_path}', skipping.")
-        return
+        logger.error(f"No render data for '{output_path}', skipping.")
+        return False
 
     tex_h, tex_w = viewer.last_rgba_shape[0], viewer.last_rgba_shape[1]
     if len(viewer.last_rgba_flat) != tex_w * tex_h * 4:
-        logger.warning(f"Texture mismatch for '{output_path}', skipping.")
-        return
+        logger.error(f"Texture mismatch for '{output_path}', skipping.")
+        return False
 
     # Base texture (includes base + ROIs; for non-Alpha modes also includes overlay)
     arr = np.array(viewer.last_rgba_flat, dtype=np.float32).reshape((tex_h, tex_w, 4))
@@ -294,9 +333,10 @@ def _capture_and_save(viewer, output_path, fov_mm):
     row_sp = abs(spacing[sp_idx[0]]) if sp_idx else 1.0
     col_sp = abs(spacing[sp_idx[1]]) if sp_idx else 1.0
 
-    # FOV-based cropping
+    # FOV-based cropping (r0, c0: the crop origin in texture pixels)
+    r0, c0 = 0, 0
     if fov_mm and len(fov_mm) == 2 and viewer.volume:
-        arr = _crop_to_fov(arr, viewer, fov_mm, tex_h, tex_w)
+        arr, (r0, c0) = _crop_to_fov(arr, viewer, fov_mm, tex_h, tex_w)
         # Update dimensions after crop
         tex_h, tex_w = arr.shape[0], arr.shape[1]
         phys_w_mm, phys_h_mm = fov_mm[0], fov_mm[1]
@@ -319,6 +359,10 @@ def _capture_and_save(viewer, output_path, fov_mm):
         resample_mode = getattr(getattr(Image, "Resampling", Image), "BILINEAR", getattr(Image, "BILINEAR", None))
         img = img.resize((new_w, new_h), resample_mode)
 
+    # Contours (ROIs in contour mode, isodoses, threshold preview): drawn on
+    # screen as lines over the image, so not in the texture
+    _draw_contours(img, viewer, (r0 * row_sp, c0 * col_sp), target_sp)
+
     # Ensure output directory exists
     out_dir = os.path.dirname(output_path)
     if out_dir:
@@ -326,6 +370,30 @@ def _capture_and_save(viewer, output_path, fov_mm):
 
     img.save(output_path)
     print(f"Saved: {output_path}")
+    return True
+
+
+def _draw_contours(img, viewer, origin_mm, mm_per_px):
+    """Draw the viewer's contours of the current slice on img. The polygons
+    are in mm on the slice (as drawn on screen); origin_mm (row, col) is the
+    crop origin; mm_per_px the output pixel size."""
+    from PIL import ImageDraw
+
+    sources = viewer.drawer.contour_sources() if viewer.view_state else []
+    if not sources:
+        return
+    draw = ImageDraw.Draw(img)
+    oy, ox = origin_mm
+    for src in sources:
+        if not getattr(src, "visible", True):
+            continue
+        polys = src.polygons[viewer.orientation].get(viewer.slice_idx, [])
+        color = tuple(int(c) for c in list(src.color)[:3]) + (255,)
+        width = max(1, int(round(getattr(src, "thickness", 1.0))))
+        for poly in polys:
+            pts = [((x - ox) / mm_per_px, (y - oy) / mm_per_px) for x, y in poly]
+            if len(pts) >= 2:
+                draw.line(pts, fill=color, width=width, joint="curve")
 
 
 def _crop_to_fov(arr, viewer, fov_mm, tex_h, tex_w):
@@ -340,7 +408,7 @@ def _crop_to_fov(arr, viewer, fov_mm, tex_h, tex_w):
     }
     sp_idx = _SPACING_MAP.get(viewer.orientation)
     if sp_idx is None:
-        return arr
+        return arr, (0, 0)
 
     row_sp = abs(spacing[sp_idx[0]])
     col_sp = abs(spacing[sp_idx[1]])
@@ -350,19 +418,19 @@ def _crop_to_fov(arr, viewer, fov_mm, tex_h, tex_w):
 
     vs = viewer.view_state
     if not vs or vs.camera.crosshair_phys_coord is None:
-        return arr
+        return arr, (0, 0)
 
     display_voxel = vs.world_to_display(
         vs.camera.crosshair_phys_coord,
         is_buffered=viewer._is_buffered()
     )
     if display_voxel is None:
-        return arr
+        return arr, (0, 0)
 
     cr, cc = _crosshair_tex_rc(display_voxel, viewer.orientation,
                                 viewer._get_current_image_shape())
     if cr is None or cc is None:
-        return arr
+        return arr, (0, 0)
 
     cr, cc = int(round(cr)), int(round(cc))
 
@@ -381,7 +449,7 @@ def _crop_to_fov(arr, viewer, fov_mm, tex_h, tex_w):
 
     cropped = np.zeros((fov_rows, fov_cols, 4), dtype=np.float32)
     cropped[pad_top:fov_rows - pad_bot, pad_left:fov_cols - pad_right] = arr[r0c:r1c, c0c:c1c]
-    return cropped
+    return cropped, (r0, c0)
 
 
 def _crosshair_tex_rc(display_voxel, orientation, shape_3d):

@@ -13,11 +13,11 @@ Select the **Intensity** tab on the sidebar to adjust radiometry for the active 
 ![Intensity Tab Panel](images/doc_07_intensity_panel.png)
 
 ### 1. Contrast Controls
-* **Preset**: Quick clinical presets for CT (`CT Abdomen`, `CT Bone`, `CT Lung`, `CT Brain`, `CT Mediastinum`), as well as statistical presets (`Optimal`, `Min/Max`).
+* **Preset**: statistical presets (`Optimal`, `Min/Max`), `Binary Mask`, CT presets (`CT: Soft Tissue`, `CT: Bone`, `CT: Lung`, `CT: Brain`) and PET presets (`PET: [0 - 5]`, `[0 - 10]`, `[0 - 15]`, `[0 - 20]`, which also set the threshold at 0); `Custom` once you change the values.
 * **Window (WW)**: Range of displayed intensity values. Lower values increase contrast across narrow dynamic ranges.
 * **Level (WL)**: Midpoint of the displayed window range.
 * **Map**: Colormap lookup table (`Grayscale`, `Hot`, `Cold`, `Jet`, `Dosimetry`, `Segmentation`).
-* **Min Thr**: Checkbox and slider to set a lower threshold cutoff. Voxels with values below this threshold are rendered completely transparent.
+* **Min Thr**: a checkbox and a value with <kbd>−</kbd> / <kbd>+</kbd> buttons: voxels below this value are rendered completely transparent. A click on <kbd>−</kbd> / <kbd>+</kbd> also turns the threshold on.
 * **Image Range**: Displays true minimum and maximum voxel intensities across the volume.
 
 ---
@@ -33,7 +33,7 @@ Below the W/L controls, an interactive real-time histogram plots the voxel inten
 * **Ctr**: Centers the histogram zoom around the active Window/Level range.
 * **Bar / Line**: Shows the current histogram style (bars or line); click to switch.
 * **Lin / Log**: Shows the current frequency scale (linear or logarithmic); click to switch.
-* **X center / X width / Y max**: Exact values of the histogram view (center and width of the X axis, height of the Y axis).
+* **X center / X width / Y max**: the histogram view (center and width of the X axis, height of the Y axis): drag or type a value to change it. <kbd>Ctrl</kbd> + wheel on the plot zooms it.
 * **Popout ()**: Opens the histogram in an enlarged standalone window for high-precision inspection.
 
 ---
@@ -53,7 +53,7 @@ VVV tracks physical calibrated units attached to image metadata:
 | **a.u.** | MRI / Other | Arbitrary / relative units |
 
 > [!TIP]
-> You can assign or modify the unit anytime in the **Active Viewer** panel using the dropdown arrow <kbd>▾</kbd> beside the **Unit** field.
+> You can assign or modify the unit anytime in the **Active Viewer** panel using the dropdown arrow <kbd>▾</kbd> beside the **Unit** field. The unit is kept in a `.json` [side-car file](doc_17_side_car_files.md) next to the image (`ct.json` for `ct.nii.gz`): use the save icon next to the unit to write it without saving the image.
 
 ---
 
@@ -61,9 +61,9 @@ VVV tracks physical calibrated units attached to image metadata:
 
 | Action | Shortcut |
 | :--- | :--- |
-| **Adjust Window/Level** | <kbd>Left Click + Drag</kbd> on image (horizontal: Window, vertical: Level) |
+| **Adjust Window/Level** | <kbd>Right drag</kbd> (or <kbd>Shift</kbd> + mouse move) on the image (horizontal: Window, vertical: Level) |
 | **Auto Window/Level** | <kbd>W</kbd> |
 | **Auto Overlay Window/Level** | <kbd>X</kbd> |
 | **Nearest-Neighbor / Linear Interpolation** | <kbd>K</kbd> |
-| **Toggle Color Legend Bar** | <kbd>L</kbd> |
+| **Color Legend Bar** (off / two styles) | <kbd>L</kbd> |
 

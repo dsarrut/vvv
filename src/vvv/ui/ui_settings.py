@@ -233,6 +233,11 @@ class SettingsWindow:
                 pass
         self.controller.update_setting(keys, value)
         self.update_label_colors()  # Instantly updates text colors without rebuilding the UI!
+        if "shortcuts" in keys and self.controller.gui:
+            from vvv.ui.ui_components import refresh_shortcut_hints
+
+            refresh_shortcut_hints(self.controller.gui)  # keys shown in tooltips / menus
+            self.controller.ui_needs_refresh = True
 
     def _get_val_for_cmp(self, val, keys_path):
         """Helper to safely compare color tuples vs lists."""

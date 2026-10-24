@@ -10,17 +10,19 @@ VVV allows saving and restoring complete multi-viewer visualization sessions usi
 
 A workspace file stores the entire state of your session in a clean, human-readable JSON format:
 * **Loaded Datasets**: Base image paths, overlays, and ROI masks.
-* **Viewer Configurations**: Multi-viewer layout (1, 2, 3, or 4 panels), assigned images, slice orientations (Axial, Coronal, Sagittal), zoom, and pan.
+* **Viewer Configurations**: Multi-viewer layout (1, 2 or 4 viewers), the active viewer, assigned images, slice orientations (Axial, Coronal, Sagittal), zoom, and pan.
 * **Synchronization Links**: Active synchronized viewer groups.
 * **Radiometry & Visualization**: Window/Level settings, colormaps, opacity, and threshold bounds.
-* **Analysis States**: Active landmarks, line profiles, and registration transforms.
+* **Analysis States**: Active landmarks and line profiles. Registration transforms are not stored: a transform saved next to its image (`ct.tfm`, a [side-car file](doc_17_side_car_files.md)) is applied again when the workspace is opened.
 
 ### Saving & Loading
-* **Save Workspace**: In the **Images** or **File** menu, click **Save Workspace** (or press <kbd>Ctrl + S</kbd> / <kbd>Cmd + S</kbd>).
-* **Load Workspace**: Open a `.vvw` file from the GUI or launch directly from the terminal:
-  ```bash
-  vvv data/dose.vvw
-  ```
+The **Workspace** icons of the nav column and the **Workspace** menu:
+* **Open Workspace**: opens a `.vvw` file (also by drag and drop, or from the terminal: `vvv data/dose.vvw`). Its images are added to the ones already open.
+* **Save Workspace**: saves to the current workspace file (shown once a workspace is open or saved); hover the icon to see its name, path and content.
+* **Save Workspace As**: saves to a new file, which becomes the current workspace.
+* **Reload Workspace** (⟳): reloads the current workspace file as last saved: its images are closed and opened again; the other images stay. No confirmation is asked.
+
+**Several workspaces** can be open together: each one adds its images, and the last one opened takes precedence (layout, active viewer) and is the current workspace (the one Save and Reload act on).
 * **Dynamic Label Maps on Disk**: When a workspace referencing a multi-label segmentation map is reopened, VVV reads the actual label map image file currently on disk as the source of truth:
   * Any labels present in the file on disk are loaded.
   * Preferences saved in the workspace (custom names, colors, contours, visibility, and opacity) are reapplied to matching labels.
@@ -34,7 +36,7 @@ A workspace file stores the entire state of your session in a clean, human-reada
 VVV provides flexible tools for exporting clean, publication-ready figures:
 
 ### 1. Interactive Screenshot
-* Click the **Screenshot** icon (camera icon in the top bar) or use the screenshot menu.
+* Click the **Screenshot** icon (camera icon at the right of the menu bar).
 * **macOS & Windows**: Automatically copied directly to your system clipboard ready to paste into documents or presentation slides.
 * **Linux**:
   * Copying directly to the clipboard uses `xclip` (on X11) or `wl-clipboard` (`wl-copy` on Wayland). These system utilities cannot be installed via `pip`:
@@ -44,21 +46,35 @@ VVV provides flexible tools for exporting clean, publication-ready figures:
     ```
   * If neither utility is installed, VVV gracefully falls back to automatically saving the captured image to `~/Pictures/vvv_screenshot_<timestamp>.png` (or `~/vvv_screenshot_<timestamp>.png`).
 
-### 2. Automated Headless Screenshots via CLI
-You can generate batch figures directly from scripts or CI pipelines without displaying an interactive window:
+### 2. Screenshots from a Workspace (command line)
+Make figures from a saved workspace, e.g. in a script:
+
 ```bash
-vvv --screenshot my_session.vvw --output figure1.png
+vvv my_session.vvw --screenshots shots.json
 ```
 
+VVV opens the workspace (a window shows briefly), saves one PNG per entry of `shots.json`, then exits. The exit status is 0 when all are saved, 1 when some could not be made (they are reported), 2 for a wrong command or an invalid `shots.json`.
 
----
+```json
+{
+  "defaults": {"image": "ct.nii.gz", "fov_mm": [200, 150]},
+  "screenshots": [
+    {"output": "axial.png"},
+    {"output": "coronal.png", "orientation": "coronal"},
+    {"output": "spect.png", "image": 2, "position_mm": [10.5, -40.0, 120.0], "orientation": "XY"}
+  ]
+}
+```
 
-## Shortcuts Summary
+| Field | Description | Default |
+| :--- | :--- | :--- |
+| **output** | the PNG file (`.png` added if missing) | required |
+| **image** | the image: its workspace id (a string, e.g. `"1"`), its file name (`"ct.nii.gz"`), or its number (an integer, `2`, as shown `(2)` in the image list) | the image of the active viewer |
+| **orientation** | `axial` / `XY`, `coronal` / `XZ`, `sagittal` / `YZ` | the orientation of the active viewer |
+| **position_mm** | the point `[x, y, z]` in mm: it gives the slice, and the center of the `fov_mm` crop | the crosshair saved in the workspace |
+| **fov_mm** | crop to `[width, height]` mm around the position | the whole slice |
 
-| Action | Shortcut |
-| :--- | :--- |
-| **Save Workspace** | <kbd>Ctrl + S</kbd> / <kbd>Cmd + S</kbd> |
-| **Capture Screenshot** | <kbd>F12</kbd> |
-| **Toggle Fullscreen Viewport** | <kbd>F11</kbd> |
-| **Reset View / Zoom** | <kbd>Space</kbd> |
+`defaults` holds the values shared by all the entries. An unknown image is an error for that entry (the others are still saved).
+
+The PNG is the slice at the image resolution (square pixels, at the smallest voxel spacing), with the workspace display: window / level, colormap, the fused overlay, the filled ROIs, and the contours (ROIs in contour mode, isodose lines, threshold preview) with their colors and thickness. The crosshair, the legend, the text and the other annotations are not drawn.
 

@@ -26,8 +26,15 @@ def custom_is_key_down(key):
 dpg.is_key_down = custom_is_key_down
 
 
+# The key codes DPG knows (512-630): is_key_down on any other number reads
+# past ImGui's key table (it crashed a CI run on Windows)
+_ALL_KEYS = sorted(
+    {v for n, v in vars(dpg).items() if n.startswith("mvKey_") and isinstance(v, int) and 0 < v < 4096}
+)
+
+
 def clear_modifier_overrides():
-    for k in range(1000):
+    for k in _ALL_KEYS:
         try:
             if _original_is_key_down(k):
                 _overridden_keys[k] = False

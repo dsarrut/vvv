@@ -228,6 +228,9 @@ class PluginAPI:
     def save_transform(self, image_id, file_path) -> bool:
         return self._controller.save_transform(image_id, file_path)
 
+    def unload_transform(self, image_id) -> None:
+        self._controller.unload_transform(image_id)
+
     def resample_image(self, image_id) -> None:
         self._controller.resample_image(image_id)
 
