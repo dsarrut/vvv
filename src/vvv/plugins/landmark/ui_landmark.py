@@ -163,7 +163,8 @@ class LandmarkPluginUI(PluginTagMixin):
                     icon=ICON_ADD,
                     tag=self._t("btn_add"),
                     callback=self._c.on_btn_add_clicked,
-                    tooltip="Add a landmark at the crosshair (Space)",
+                    tooltip="Add a landmark at the crosshair",
+                    shortcut="add_landmark",
                     api=api,
                 )
 

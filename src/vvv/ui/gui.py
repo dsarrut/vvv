@@ -937,6 +937,13 @@ class MainGUI:
                         user_data="legend",
                         default_value=False,
                     )
+                for item, text, action in (
+                    ("check_axis", "Slice axis on / off", "toggle_axis"),
+                    ("check_grid", "Voxel grid on / off", "toggle_grid"),
+                    ("check_scalebar", "Scale bar on / off", "toggle_scalebar"),
+                    ("check_legend", "Color legend (off / two styles)", "toggle_legend"),
+                ):
+                    build_tooltip(item, text, self, shortcut=action)
                 with dpg.table_row():
                     with dpg.group(horizontal=True):
                         dpg.add_text("Filename:", color=dim_col)
@@ -956,6 +963,12 @@ class MainGUI:
                             callback=self.on_visibility_toggle,
                             user_data="interpolation",
                             width=55,
+                        )
+                        build_tooltip(
+                            "check_interpolation",
+                            "Pixelated zoom (nearest neighbor) on / off",
+                            self,
+                            shortcut="toggle_interp",
                         )
                         build_help_button(
                             "Interpolation: Linear (smooth), NN (pixelated), or Stripe (extreme zoom).",

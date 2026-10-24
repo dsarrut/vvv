@@ -5,6 +5,7 @@ from vvv.ui.ui_components import (
     build_horizontal_separator,
     build_help_button,
     build_beginner_tooltip,
+    shortcut_key,
 )
 from vvv.ui.ui_image_list import highlight_active_image_in_list
 
@@ -110,6 +111,12 @@ def build_tab_sync(gui):
             dpg.add_group(tag="sync_list_container")
 
 
+def _key_line(gui, action):
+    """A last tooltip line 'Key: S', or '' when the action has no key."""
+    key = shortcut_key(gui, action)
+    return f"\nKey: {key}" if key else ""
+
+
 def refresh_sync_ui(gui):
     """Dynamically rebuilds the Sync matrix UI."""
     container = "sync_list_container"
@@ -134,9 +141,9 @@ def refresh_sync_ui(gui):
             dpg.set_item_label("sync_toggle_wl_btn", "Link W/L")
             dpg.bind_item_theme("sync_toggle_wl_btn", 0)
         if dpg.does_item_exist("tooltip_text_sync_spatial"):
-            dpg.set_value("tooltip_text_sync_spatial", "Spatial View Sync:\nNo images loaded.")
+            dpg.set_value("tooltip_text_sync_spatial", "Spatial View Sync:\nNo images loaded." + _key_line(gui, "sync_all"))
         if dpg.does_item_exist("tooltip_text_sync_wl"):
-            dpg.set_value("tooltip_text_sync_wl", "Window/Level Sync:\nNo images loaded.")
+            dpg.set_value("tooltip_text_sync_wl", "Window/Level Sync:\nNo images loaded." + _key_line(gui, "sync_all_wl"))
     else:
         # Spatial sync status
         first_sp = vs_list[0].sync_group
@@ -157,17 +164,17 @@ def refresh_sync_ui(gui):
             if all_spatial:
                 dpg.set_value(
                     "tooltip_text_sync_spatial",
-                    f"Spatial View Sync: All {num_total} images linked (Group {first_sp}).\nClick to unlink all.",
+                    f"Spatial View Sync: All {num_total} images linked (Group {first_sp}).\nClick to unlink all." + _key_line(gui, "sync_all"),
                 )
             elif partial_spatial:
                 dpg.set_value(
                     "tooltip_text_sync_spatial",
-                    f"Spatial View Sync: Partially linked ({num_spatial}/{num_total} images).\nClick to link all images.",
+                    f"Spatial View Sync: Partially linked ({num_spatial}/{num_total} images).\nClick to link all images." + _key_line(gui, "sync_all"),
                 )
             else:
                 dpg.set_value(
                     "tooltip_text_sync_spatial",
-                    f"Spatial View Sync: Unlinked (0/{num_total}).\nClick to link all images together.",
+                    f"Spatial View Sync: Unlinked (0/{num_total}).\nClick to link all images together." + _key_line(gui, "sync_all"),
                 )
 
         # Window/Level sync status
@@ -192,17 +199,17 @@ def refresh_sync_ui(gui):
                 wl_letter = chr(64 + first_wl) if 1 <= first_wl <= 26 else str(first_wl)
                 dpg.set_value(
                     "tooltip_text_sync_wl",
-                    f"Window/Level Sync: All {num_total} images linked (Group {wl_letter}).\nClick to unlink all.",
+                    f"Window/Level Sync: All {num_total} images linked (Group {wl_letter}).\nClick to unlink all." + _key_line(gui, "sync_all_wl"),
                 )
             elif partial_wl:
                 dpg.set_value(
                     "tooltip_text_sync_wl",
-                    f"Window/Level Sync: Partially linked ({num_wl}/{num_total} images).\nClick to link all images.",
+                    f"Window/Level Sync: Partially linked ({num_wl}/{num_total} images).\nClick to link all images." + _key_line(gui, "sync_all_wl"),
                 )
             else:
                 dpg.set_value(
                     "tooltip_text_sync_wl",
-                    f"Window/Level Sync: Unlinked (0/{num_total}).\nClick to link all images together.",
+                    f"Window/Level Sync: Unlinked (0/{num_total}).\nClick to link all images together." + _key_line(gui, "sync_all_wl"),
                 )
 
     # Get the total number of loaded images
