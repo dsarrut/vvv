@@ -1,6 +1,6 @@
 # Manual Rigid Image Registration
 
-The Registration tool provides interactive manual rigid alignment (6 Degrees of Freedom: 3 translations, 3 rotations) between a fixed reference image and a moving floating image.
+The **Transform** tool aligns an image by hand with a rigid transform (6 degrees of freedom: 3 translations, 3 rotations), e.g. a moving image on a fixed reference.
 
 ![Registration Interface](images/doc_12_registration_layout.png)
 
@@ -8,57 +8,50 @@ The Registration tool provides interactive manual rigid alignment (6 Degrees of 
 
 ## Aligning Images
 
-1. Load your reference and floating images into VVV (either as separate viewers or combined in a single viewer with a Fusion overlay).
-2. Open the **Registration** (Transform) tab on the sidebar.
-3. If the active viewer has a Fusion overlay, a **Target** switch (`[Base] [Fusion]`) appears, allowing you to select whether you are inspecting and adjusting the transform of the Base image or the Fusion overlay image. A summary line displays the status of both transforms (`Base: <file or Identity> | Fusion: <file or Identity>`).
+1. Load the reference and the moving image, either in separate viewers or in one viewer with the moving image as Fusion overlay (see [Fusion](doc_06_fusion_and_overlays.md)).
+2. Open the **Transform** tab of the nav column.
+3. If the active viewer has a Fusion overlay, the **Target** switch (`Base` / `Fusion`) chooses which image you move. A summary line shows both transforms (`Base: <file or Identity> | Fusion: <file or Identity>`).
+
+The screen stays fixed in space: with Target **Base**, the base image (and its ROIs) moves on screen and the overlay stays; with Target **Fusion**, the overlay moves. The crosshair stays at the same place in space.
 
 ---
 
-## 6-DOF Transformation Controls
+## The Transform Panel
 
-Use the interactive sliders or numeric step inputs to adjust the rigid transformation in real time:
+### File toolbar
+**Load**, **Save**, **Save As**, **Reload**, **Unload** (<kbd>×</kbd>), then the name of the transform file (`patient.tfm (side-car)` for a side-car file; hover it for its full path).
 
-### Translation ($\text{mm}$)
-* **$T_x$**: Left / Right translation.
-* **$T_y$**: Posterior / Anterior translation.
-* **$T_z$**: Inferior / Superior translation.
+### Rigid Adjustment (Euler R = Rz Ry Rx)
+* **Step**: **Coarse** (1 mm / 1° per step) or **Fine** (0.1).
+* **Tx**, **Ty**, **Tz** (mm): the translations; **Rx**, **Ry**, **Rz** (degrees): the rotations. Drag a value or use its <kbd>−</kbd> / <kbd>+</kbd> buttons.
+* **CoR**: the center of rotation (mm). The icons next to it move the crosshair to the CoR, or snap the CoR to the crosshair.
+* **Reset to Identity**: all translations and rotations back to zero.
+* **Invert Transform**: replaces the transform by its inverse ($T \leftrightarrow T^{-1}$).
 
-### Rotation ($\text{degrees}$)
-* **$R_x$ (Pitch)**: Rotation around the lateral axis.
-* **$R_y$ (Roll)**: Rotation around the anteroposterior axis.
-* **$R_z$ (Yaw)**: Rotation around the craniocaudal axis.
-* **Center of Rotation (CoR)**: Pivot point around which rotations occur. Click the crosshair icon to jump to the CoR, or the magnet icon to snap it to the current 3D crosshair position.
-* **Invert Transform**: Invert the current transform matrix ($T \leftrightarrow T^{-1}$) with the **Invert Transform** button.
-* **Reset to Identity**: Resets all translations and rotations back to zero.
+### Preview and resampling
+While you drag, rotations are previewed quickly; the full resample (ITK) is done:
+* when you stop dragging, if **Auto-Update Preview** is on;
+* with the **Update Preview** button (orange when the preview is out of date).
+
+**Resample Image** applies the transform to the voxels of the image for good (the image is resampled on its own grid) and resets the sliders to zero.
+
+### Affine Matrix
+The 4×4 matrix of the current transform.
 
 ---
 
-## Visual Verification Tools
+## Checking the Alignment
 
-To inspect the quality of the spatial alignment:
-* **Checkerboard**: Interleaves alternating tiles of the fixed and moving images. Discontinuities in edges highlight misalignments.
-* **Difference Image**: Subtracts normalized intensities to highlight residual differences.
-* **Color Overlay**: Renders the fixed image in Green and the moving image in Magenta (or Red/Cyan) to evaluate anatomical overlap.
-* **Flicker**: Quickly toggles visibility between fixed and moving images.
+Use the fusion modes of the **Fusion** tab (see [Fusion](doc_06_fusion_and_overlays.md)):
+* **Registration**: a red / green difference map of the two images;
+* **Checkerboard**: alternating tiles of the two images (tile size, **Swap**); edges that break at the tile borders show a misalignment;
+* **Alpha** with a colormap on the overlay.
 
 ---
 
 ## Saving & Loading Transformations
 
-* **Transform File Formats**: Standard ITK Transform (`.tfm`), as well as `.txt`, `.mat`, and Elastix parameter files.
-* **Literature & ITK Coordinate Convention**: Files saved to and loaded from disk adhere to the standard ITK / literature convention ($T_{\text{disk}} = T_{\text{ITK}} = T_{\text{fixed} \to \text{moving}}$). In VVV's interactive viewport, forward spatial display coordinates ($T_{\text{moving} \to \text{world}}$) are used, ensuring intuitive forward slider movement while guaranteeing 100% interoperability with SimpleITK (`sitk.Resample`), Plastimatch, Elastix, and 3D Slicer without manual coordinate inversion.
-* **Default Format & Naming**: When saving, the dialog pre-selects `.tfm` format with the image's name pre-filled (e.g. `patient.tfm`).
-* **Automatic Transform Loading (side-car)**: When an image is loaded, VVV checks for a transform file with the same name in the same folder: `patient.tfm`, else `patient.mat`, next to `patient.nii.gz` or `patient.mha`. If found, it is loaded and applied, also when the image comes from a workspace (workspaces do not store transforms). The panel shows `patient.tfm (side-car)`. The <kbd>×</kbd> icon unloads the transform (the file is kept, and applied again at the next load). See [Side-Car Files](doc_17_side_car_files.md).
-* **Resample & Bake**: Apply the transformation directly to the image volume grid (**Resample Image**) to permanently bake the alignment into the 3D voxel data.
-
----
-
-## Shortcuts Summary
-
-| Action | Shortcut |
-| :--- | :--- |
-| **Reset Transformation** | Click **Reset to Identity** |
-| **Invert Transformation** | Click **Invert Transform** |
-| **Step Step Translations ($1\text{ mm}$)** | Arrow keys (when slider focused) |
-| **Toggle Checkerboard** | Accessible via Fusion overlay modes |
-
+* **File Formats**: Load reads ITK transforms (`.tfm`), `.txt`, `.mat`, `.xfm`, and Elastix Euler parameter files (`TransformParameters` + `CenterOfRotationPoint`, read only). Save writes `.tfm` (default), `.txt` or `.mat`.
+* **Literature & ITK Coordinate Convention**: Files saved to and loaded from disk adhere to the standard ITK / literature convention ($T_{\text{disk}} = T_{\text{ITK}} = T_{\text{fixed} \to \text{moving}}$). In VVV's interactive viewport, forward spatial display coordinates ($T_{\text{moving} \to \text{world}}$) are used, ensuring intuitive forward slider movement while guaranteeing interoperability with SimpleITK (`sitk.Resample`), Plastimatch, Elastix, and 3D Slicer without manual coordinate inversion.
+* **Default Name**: Save As proposes the name of the current transform file, else the image name (`patient.tfm`), which makes it a side-car file.
+* **Automatic Transform Loading (side-car)**: When an image is loaded, VVV checks for a transform file with the same name in the same folder: `patient.tfm`, else `patient.mat` (also `patient.nii.gz.tfm`; for a DICOM series, the folder's `.tfm`). If found, it is loaded and applied, also when the image comes from a workspace (workspaces do not store transforms). The <kbd>×</kbd> icon unloads the transform (the file is kept, and applied again at the next load). See [Side-Car Files](doc_17_side_car_files.md).
