@@ -13,7 +13,7 @@ VVV distinguishes two independent synchronization modes:
 | Mode | What is Synchronized | Scope |
 | :--- | :--- | :--- |
 | **Spatial Sync** (`Sync: Grp 1, 2...`) | Crosshair position, slice navigation, zoom scale (ppm), pan position, and 4D timeframes | Physical Space (mm) |
-| **Window/Level Sync** (`W/L: Grp A, B...`) | Window width, window level, and colormaps | Radiometric / Contrast |
+| **Window/Level Sync** (`W/L: Grp A, B...`) | Window width and level, minimum threshold, colormap, and fusion overlay opacity | Radiometric / Contrast |
 
 ---
 
@@ -24,13 +24,16 @@ Open the **Sync** tab in the sidebar to manage synchronization groups for all lo
 ![Synchronization Control Panel](images/doc_05_sync_panel.png)
 
 ### 1. Global Link Buttons
-* **Link All / Unlink All**: Assigns all loaded volumes to Spatial Sync **Grp 1** (or disconnects all).
-* **Link All W/L / Unlink All W/L**: Assigns all grayscale volumes to Window/Level Sync **Grp A**.
+Two buttons on one row:
+* **Link Views** / **Unlink Views**: puts all the images in Spatial Sync **Grp 1** (or unlinks them all).
+* **Link W/L** / **Unlink W/L**: puts all the images in Window/Level Sync **Grp A** (RGB images are not changed by it).
+
+A button is blue when all the images are linked; its tooltip says when they are only partly linked (`Partially linked (2/3 images)`).
 
 ### 2. Individual Group Selectors
-Each loaded image has two independent dropdown selectors:
-* **Sync (`Grp 1`, `Grp 2`, `None`)**: Numerical groups for spatial navigation. Images sharing the same number move in unison.
-* **W/L (`Grp A`, `Grp B`, `None`)**: Alphabetical groups for contrast. Images sharing the same letter synchronize contrast adjustments and colormap selection.
+Each loaded image has two independent dropdown selectors (`None`, then one group per loaded image):
+* **Sync (`Grp 1`, `Grp 2`, ...)**: Numerical groups for spatial navigation. Images sharing the same number move in unison.
+* **W/L (`Grp A`, `Grp B`, ...)**: Alphabetical groups for contrast. Images sharing the same letter share their contrast settings (disabled for RGB images).
 
 ---
 
@@ -38,8 +41,8 @@ Each loaded image has two independent dropdown selectors:
 
 | Shortcut | Action |
 | :--- | :--- |
-| <kbd>S</kbd> | **Sync All Viewers**: Instantly syncs all viewports to the current crosshair, slice, and zoom of the active viewer. |
-| <kbd>Ctrl+S</kbd> / <kbd>Cmd+S</kbd> | Toggle global spatial synchronization on/off. |
+| <kbd>S</kbd> | Link all images spatially (same as **Link Views**), or unlink them when they are all linked. |
+| <kbd>Shift</kbd>+<kbd>S</kbd> | The same for Window/Level (**Link W/L**). |
 
 ---
 
