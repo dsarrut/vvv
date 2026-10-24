@@ -85,6 +85,9 @@ class FileManager:
             self.controller.volumes[img_id] = vol
             self.controller.view_states[img_id] = vs
 
+        # Before the plugins hear of it: they see the image as displayed
+        self.controller.apply_transform_sidecar(img_id)
+
         if self.controller.gui and not is_auto_overlay:
             self.controller.gui.notify_plugins_image_loaded(img_id)
             if history_entry and "plugins" in history_entry:
@@ -102,8 +105,6 @@ class FileManager:
 
         if not is_auto_overlay:
             self.controller.add_recent_file(loaded["path"])
-        if not getattr(vol, "is_roi", False):
-            self.controller.apply_transform_sidecar(img_id)
         if getattr(vol, "sidecar_error", None):
             self.controller._set_status(
                 f"Side-car not read: {vol.sidecar_error}", level="warning"

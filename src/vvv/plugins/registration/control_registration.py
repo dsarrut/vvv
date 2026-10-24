@@ -6,6 +6,7 @@ import threading
 import numpy as np
 from typing import Optional, TYPE_CHECKING
 import dearpygui.dearpygui as dpg
+from vvv.core.sidecar import sidecar_path
 from vvv.plugins.plugin_api import PluginAPI, PluginTagMixin
 from vvv.ui.file_dialog import open_file_dialog, save_file_dialog
 from vvv.ui.render_strategy import (
@@ -122,81 +123,17 @@ class RegistrationPluginController(PluginTagMixin):
         if self._ui:
             self._ui.update_ui(api)
 
-    def _find_tfm_candidate(self, vol) -> str | None:
-        """Looks for a matching .tfm file on disk for a loaded volume."""
-        if not vol:
-            return None
-
-        candidates = []
-        file_paths = getattr(vol, "file_paths", None)
-        if file_paths and len(file_paths) > 0:
-            p0 = file_paths[0]
-            if p0.lower().endswith(".nii.gz") or p0.lower().endswith(".tar.gz"):
-                stem = p0[:-7]
-            else:
-                stem = os.path.splitext(p0)[0]
-
-            candidates.append(f"{stem}.tfm")
-            candidates.append(f"{stem}.TFM")
-            candidates.append(f"{p0}.tfm")
-            candidates.append(f"{p0}.TFM")
-
-            # Check directory-level names for multi-file series (e.g. DICOM)
-            dir_path = os.path.dirname(os.path.abspath(p0))
-            folder_name = os.path.basename(dir_path)
-            candidates.append(f"{dir_path}.tfm")
-            candidates.append(f"{dir_path}.TFM")
-            candidates.append(os.path.join(dir_path, f"{folder_name}.tfm"))
-            candidates.append(os.path.join(dir_path, f"{folder_name}.TFM"))
-            if getattr(vol, "name", None):
-                candidates.append(os.path.join(dir_path, f"{vol.name}.tfm"))
-                candidates.append(os.path.join(dir_path, f"{vol.name}.TFM"))
-
-        name = getattr(vol, "name", None)
-        if name:
-            if name.lower().endswith(".nii.gz") or name.lower().endswith(".tar.gz"):
-                nstem = name[:-7]
-            else:
-                nstem = os.path.splitext(name)[0]
-            candidates.append(f"{nstem}.tfm")
-            candidates.append(f"{nstem}.TFM")
-
-        for c in candidates:
-            if c and os.path.isfile(c):
-                return os.path.abspath(c)
-        return None
-
     def on_image_loaded(self, image_id: str) -> None:
+        """A transform side-car (Controller.apply_transform_sidecar) is already
+        applied when the image is announced: track it, show its values."""
         if not self._api:
             return
-        vol = self._api.get_volumes().get(image_id)
         vs = self._api.get_view_states().get(image_id)
-        if not vol or not vs:
+        if not vs or vs.space.transform is None or not vs.space.is_active:
             return
-
-        # Do not overwrite if transform is already set
-        if vs.space.transform is not None:
-            return
-
-        tfm_path = self._find_tfm_candidate(vol)
-        if not tfm_path:
-            return
-
-        if self._api.load_transform(image_id, tfm_path):
-            vs.space.full_transform_path = tfm_path
-            vs.space.is_active = True
-            self._ensure_tracked(image_id)
-
-            world_pos = vs.camera.crosshair_phys_coord
-            if world_pos is not None:
-                vs.update_crosshair_from_phys(world_pos)
-
-            self._api.resample_image(image_id)
-            self._api.update_all_viewers_of_image(image_id)
-            if self._ui:
-                self._ui.pull_reg_sliders_from_transform()
-            self._api.notify(f"Auto-applied transform: {os.path.basename(tfm_path)}")
-            self._api.request_refresh()
+        self._ensure_tracked(image_id)
+        if self._ui:
+            self._ui.pull_reg_sliders_from_transform()
 
     def on_image_removed(self, image_id: str) -> None:
         self._last_data_ids.pop(image_id, None)
@@ -512,21 +449,13 @@ class RegistrationPluginController(PluginTagMixin):
         if vs.space.transform_file and vs.space.transform_file != "None":
             default_name = vs.space.transform_file
         elif vol and getattr(vol, "file_paths", None) and vol.file_paths:
+            # The side-car name: applied again when the image is loaded
             fp0 = vol.file_paths[0]
             if start_dir is None:
                 start_dir = os.path.dirname(fp0)
-            if fp0.lower().endswith(".nii.gz") or fp0.lower().endswith(".tar.gz"):
-                img_stem = os.path.basename(fp0[:-7])
-            else:
-                img_stem = os.path.splitext(os.path.basename(fp0))[0]
-            default_name = f"{img_stem}.tfm"
+            default_name = os.path.basename(sidecar_path(fp0, ".tfm"))
         elif vol and getattr(vol, "name", None):
-            name = vol.name
-            if name.lower().endswith(".nii.gz") or name.lower().endswith(".tar.gz"):
-                nstem = name[:-7]
-            else:
-                nstem = os.path.splitext(name)[0]
-            default_name = f"{nstem}.tfm"
+            default_name = os.path.basename(sidecar_path(vol.name, ".tfm"))
         else:
             default_name = "matrix.tfm"
 

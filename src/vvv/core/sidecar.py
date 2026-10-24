@@ -65,10 +65,19 @@ def update_sidecar(image_path, changes, drop=None):
     return path
 
 
-def transform_sidecar_path(image_path):
-    """The transform side-car of an image (<name>.tfm, else <name>.mat), or None."""
-    stem = _stem(image_path)
-    for ext in TRANSFORM_EXTENSIONS:
-        if os.path.isfile(stem + ext):
-            return stem + ext
+def transform_sidecar_path(image_path, series=False):
+    """The transform side-car of an image, or None: <name>.tfm, else
+    <name>.mat (also <file name>.tfm, e.g. ct.nii.gz.tfm, and upper-case
+    extensions). For a series (e.g. DICOM: one file per slice), also the
+    folder's: <folder>.tfm next to it, or <folder>/<folder name>.tfm."""
+    p = os.fspath(image_path)
+    stems = [_stem(p), p]
+    if series:
+        folder = os.path.dirname(os.path.abspath(p))
+        stems += [folder, os.path.join(folder, os.path.basename(folder))]
+    for stem in stems:
+        for ext in TRANSFORM_EXTENSIONS:
+            for e in (ext, ext.upper()):
+                if os.path.isfile(stem + e):
+                    return stem + e
     return None

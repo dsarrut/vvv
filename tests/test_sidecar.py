@@ -60,6 +60,23 @@ def test_transform_sidecar_path(tmp_path):
     assert transform_sidecar_path(img) == str(tmp_path / "ct.tfm")  # preferred
 
 
+def test_transform_sidecar_other_names(tmp_path):
+    img = tmp_path / "ct.nii.gz"
+    (tmp_path / "ct.nii.gz.tfm").write_text("")  # the full file name
+    assert transform_sidecar_path(img) == str(tmp_path / "ct.nii.gz.tfm")
+    (tmp_path / "ct.TFM").write_text("")  # upper case, before the full name
+    assert transform_sidecar_path(img).lower() == str(tmp_path / "ct.tfm").lower()
+
+    # a series (one file per slice): the folder's transform
+    series = tmp_path / "series"
+    series.mkdir()
+    slice0 = series / "IM0001.dcm"
+    assert transform_sidecar_path(slice0, series=True) is None
+    (tmp_path / "series.tfm").write_text("")
+    assert transform_sidecar_path(slice0) is None  # only for a series
+    assert transform_sidecar_path(slice0, series=True) == str(tmp_path / "series.tfm")
+
+
 def test_label_map_save_keeps_the_other_keys(tmp_path):
     """J2: saving ROIs as a label map replaces the label entries of an existing
     json side-car, keeps its other keys (unit...)."""

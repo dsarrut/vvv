@@ -218,7 +218,7 @@ class Controller:
         paths = getattr(vol, "file_paths", None) or []
         if not paths or not os.path.isfile(str(paths[0])):
             return None
-        path = transform_sidecar_path(paths[0])
+        path = transform_sidecar_path(paths[0], series=len(paths) > 1)
         if not path:
             return None
         if not self.load_transform(vs_id, path):
@@ -226,10 +226,13 @@ class Controller:
                 f"Transform side-car not read: {os.path.basename(path)}", level="warning"
             )
             return None
-        space = self.view_states[vs_id].space
+        vs = self.view_states[vs_id]
+        space = vs.space
         space.full_transform_path = os.path.abspath(path)
         space.is_active = True
         space.from_sidecar = True
+        if vs.camera.crosshair_phys_coord is not None:
+            vs.update_crosshair_from_phys(vs.camera.crosshair_phys_coord)
         self.resample_image(vs_id)
         self._set_status(f"Transform applied: {os.path.basename(path)} (side-car)")
         return path

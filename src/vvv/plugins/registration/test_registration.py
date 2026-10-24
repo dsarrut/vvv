@@ -350,62 +350,34 @@ class TestRegistrationPlugin(unittest.TestCase):
         
         dpg.delete_item("test_parent")
 
-    def test_on_image_loaded_auto_applies_tfm(self):
-        import tempfile, os
-        import SimpleITK as sitk
-        from unittest.mock import patch
-
+    def test_on_image_loaded_tracks_an_applied_sidecar(self):
+        """The side-car transform is applied by the controller before the
+        plugins hear of the image: the plugin only tracks it."""
         controller = self.plugin._controller
         controller.bind(self.mock_api)
-
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            img_path = os.path.join(tmp_dir, "patient_scan.nii.gz")
-            tfm_path = os.path.join(tmp_dir, "patient_scan.tfm")
-
-            # Write a valid dummy ITK transform
-            t = sitk.Euler3DTransform()
-            t.SetTranslation((12.0, -5.0, 3.5))
-            sitk.WriteTransform(t, tfm_path)
-
-            vol = MagicMock()
-            vol.file_paths = [img_path]
-            vol.name = "patient_scan"
-
-            vs = MagicMock()
-            vs.space.transform = None
-            vs.camera.crosshair_phys_coord = [10.0, 20.0, 30.0]
-
-            self.mock_api.get_volumes.return_value = {"img1": vol}
-            self.mock_api.get_view_states.return_value = {"img1": vs}
-            self.mock_api.load_transform.return_value = True
-
-            controller.on_image_loaded("img1")
-
-            self.mock_api.load_transform.assert_called_with("img1", tfm_path)
-            self.assertEqual(vs.space.full_transform_path, tfm_path)
-            self.assertTrue(vs.space.is_active)
-            self.mock_api.resample_image.assert_called_with("img1")
-            self.mock_api.update_all_viewers_of_image.assert_called_with("img1")
-            self.mock_api.notify.assert_called_with("Auto-applied transform: patient_scan.tfm")
-
-    def test_on_image_loaded_no_tfm(self):
-        controller = self.plugin._controller
-        controller.bind(self.mock_api)
-
         vol = MagicMock()
-        vol.file_paths = ["/non/existent/path/scan.mha"]
-        vol.name = "scan"
-
         vs = MagicMock()
-        vs.space.transform = None
-
+        vs.space.transform = MagicMock()
+        vs.space.is_active = True
         self.mock_api.get_volumes.return_value = {"img1": vol}
         self.mock_api.get_view_states.return_value = {"img1": vs}
 
         controller.on_image_loaded("img1")
 
+        self.assertIn("img1", controller._last_data_ids)
+        self.mock_api.load_transform.assert_not_called()  # no second auto-load
+
+    def test_on_image_loaded_no_transform(self):
+        controller = self.plugin._controller
+        controller.bind(self.mock_api)
+        vs = MagicMock()
+        vs.space.transform = None
+        self.mock_api.get_view_states.return_value = {"img1": vs}
+
+        controller.on_image_loaded("img1")
+
+        self.assertNotIn("img1", controller._last_data_ids)
         self.mock_api.load_transform.assert_not_called()
-        self.mock_api.resample_image.assert_not_called()
 
     @patch("vvv.plugins.registration.control_registration.save_file_dialog")
     def test_save_as_indicates_tfm_and_appends_extension(self, mock_save_dialog):
