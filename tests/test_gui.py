@@ -1721,3 +1721,18 @@ def test_transform_sidecar_applied_at_load_and_unloaded(headless_gui_app, tmp_pa
 
     # an image without a side-car gets no transform
     assert controller.view_states[base_id].space.transform is None
+
+
+def test_clear_modifier_overrides_probes_only_real_keys(monkeypatch):
+    """is_key_down on a number that is not a DPG key reads past ImGui's key
+    table (an access violation on a Windows CI run): only real keys are probed."""
+    import vvv.ui.ui_interaction as ui_interaction
+
+    real = {
+        v for n, v in vars(dpg).items() if n.startswith("mvKey_") and isinstance(v, int) and v > 0
+    }
+    probed = []
+    monkeypatch.setattr(ui_interaction, "_original_is_key_down", lambda k: probed.append(k) or False)
+    ui_interaction.clear_modifier_overrides()
+    assert probed and set(probed) <= real
+
