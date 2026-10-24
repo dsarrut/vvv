@@ -1,55 +1,37 @@
 # DICOM Browser & Series Loading
 
-VVV provides a built-in DICOM Browser capable of recursively scanning directories containing mixed DICOM files, sorting slices into consistent volumetric series, and inspecting clinical metadata.
+The **DICOM Series Browser** scans a folder (and its sub-folders) for DICOM files, groups them into series, shows their tags, and opens a series as an image (or an RT-Struct as ROIs).
 
 ![DICOM Browser Interface](images/doc_15_dicom_browser.png)
 
 ---
 
-## Opening the DICOM Browser
+## Opening
 
-* **From GUI**: Click **Open DICOM Folder** or open the **DICOM** plugin from the interface.
-* **From CLI**: Run with the directory path containing DICOM files:
-  ```bash
-  vvv /path/to/dicom_study/
-  ```
+* **Menu**: **File** $\rightarrow$ **Open DICOM Browser...** opens the browser window.
+* **Command line**: `vvv /path/to/series_folder/` loads the DICOM series of that folder directly as an image (without the browser).
 
 ---
 
-## Scanning & Hierarchy
+## Scanning
 
-The DICOM browser recursively parses all files and groups them according to the DICOM information model:
-1. **Patient**: Patient Name, ID, Sex, Date of Birth.
-2. **Study**: Study Date, Study Description, Accession Number.
-3. **Series**: Series Number, Series Description, Modality (`CT`, `MR`, `PT`, `RTSTRUCT`, `RTDOSE`), Number of Slices, Matrix Dimensions.
-
-**Scan cache.** The result of each scanned folder is kept in the vvv configuration folder (`dicom_cache/`, never in the scanned folders). The next scan of the same folder reuses it for every sub-folder whose files are unchanged (same names, sizes and modification times), so re-scanning a large tree takes a fraction of a second; changed folders are read again. The status shows how many folders came from the cache. The ⟳ button next to **Scan Folder** rescans everything without the cache and rebuilds it.
+* Choose the folder with the folder icon (or type its path), keep **Recurse Subfolders** on to scan the sub-folders too, and click **Scan Folder**.
+* **Scan cache.** The result of each scanned folder is kept in the vvv configuration folder (`dicom_cache/`, never in the scanned folders). The next scan of the same folder reuses it for every sub-folder whose files are unchanged (same names, sizes and modification times), so re-scanning a large tree takes a fraction of a second; changed folders are read again. The status shows how many folders came from the cache (`N/M folders from cache`). The ⟳ button next to **Scan Folder** rescans everything without the cache and rebuilds it.
 
 ---
 
-## Loading Series & Structures
+## The Series List
 
-* **Double Click Series**: Loads the selected volume series directly into the primary active slice viewer.
-* **Multi-Series Selection**: Load multiple series simultaneously into separate viewers (e.g., CT in viewer 1, PET in viewer 2).
-* **RT-STRUCT Loading**: Radiation therapy structure sets (`RTSTRUCT`) automatically extract polygon contours and convert them into VVV ROI layers with their DICOM colors and structure names preserved.
-* **RT-DOSE Loading**: Calibrated radiation dose cubes (`RTDOSE`) are automatically scaled with their dose grid scaling factors into absorbed dose in Gray ($\text{Gy}$).
-
----
-
-## Metadata Inspector
-
-Selecting any series displays comprehensive DICOM tags in the metadata table:
-* **Patient & Acquisition Tags**: `PatientID`, `StudyDate`, `SliceThickness`, `PixelSpacing`, `KVP`, `XRayTubeCurrent`.
-* **Geometry & Orientation**: `ImagePositionPatient`, `ImageOrientationPatient`, `FrameOfReferenceUID`.
-* **Search / Filter**: Rapidly filter tags by name or group/element hex code (e.g., `(0028,0030)`).
+* The series are grouped by patient, study date and frame of reference, the most recent first. **Collapse All** / **Expand All** fold the groups.
+* The modality is shown in color: **CT**, **PET**, **NM**, **MR**, **RS** (RT-Struct), **DOSE**.
+* Click a series to select it (one at a time); <kbd>↑</kbd> / <kbd>↓</kbd> move the selection. Its details are shown below: **Path**, **File**, **Patient**, **Study**, **Size**, **Spacing**, and its DICOM tags (Tag, Name, Value).
 
 ---
 
-## Shortcuts Summary
+## Loading
 
-| Action | Shortcut |
-| :--- | :--- |
-| **Open DICOM Browser** | Accessible via Menu / Toolbar |
-| **Close Browser Window** | <kbd>Escape</kbd> |
-| **Load Selected Series** | <kbd>Double Click</kbd> or click **Load Series** |
+* **Open Series as Image**: loads the selected series as an image.
+* **RT-Struct**: for an RT-Struct series the button becomes **Load RT-Struct ROIs**: the structures become ROIs of their reference image (with their DICOM names and colors). The reference image is taken among the open images, or loaded first if it is in the scanned series; otherwise a message asks you to open it first.
+* **RT-Dose**: dose series are scaled with their dose grid scaling factor, in Gy (see [Dose](doc_16_dose.md)).
 
+Each image loaded from DICOM files gets its own tab in the browser window, with all its tags and a **Filter Tags** field.

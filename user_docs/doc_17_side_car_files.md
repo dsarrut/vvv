@@ -14,6 +14,8 @@ A side-car file sits next to an image and has the same name, with another extens
 
 **Naming rule**: the image name without its extension. `ct.nii.gz`, `ct.nii`, `ct.mha`, `ct.mhd` and `ct.mha.gz` all use `ct.json` and `ct.tfm`. Two images with the same name in one folder (`ct.mha` and `ct.nii.gz`) share their side-car files.
 
+For the transform, VVV also accepts the full file name (`ct.nii.gz.tfm`) and upper-case extensions (`ct.TFM`); for a DICOM series (one file per slice), the folder's transform: `<folder>.tfm` next to the folder, or `<folder>/<folder name>.tfm`.
+
 ---
 
 ## The `.json` File
@@ -29,7 +31,7 @@ One file can hold the unit and the labels:
 ```
 
 * **Unit**: any text; common spellings are normalized (`hu` → `HU`, `bqml` → `Bq/mL`, `gy` → `Gy`, ...). Without a unit, `"modality": "CT"` gives `HU` and `"modality": "PT"` gives `SUV`.
-* **Labels**: one entry per label value. Also accepted: `{"1": "liver"}`, `{"labels": {"1": "liver"}, "colors": {"1": [255, 0, 0]}}`, a list `[{"label": 1, "name": "liver", "color": ...}]`; colors as `[0–255]`, `[0.0–1.0]` or `"#RRGGBB"`.
+* **Labels**: one entry per label value. Also accepted: `{"1": "liver"}`, `{"labels": {"1": "liver"}, "colors": {"1": [255, 0, 0]}}`, a list `[{"label": 1, "name": "liver", "color": ...}]` (a list cannot hold a unit too); colors as `[0–255]`, `[0.0–1.0]` or `"#RRGGBB"`.
 * **Other keys are kept**: VVV only changes its own keys (saving the unit keeps the labels, saving a label map keeps the unit), so you can add your own notes. The file is written safely (never left half-written).
 * **Edit by hand**: it is plain JSON; reload the image to read it again.
 
