@@ -161,8 +161,8 @@ class NavigationTool:
                 is_spheroid = getattr(roi_state, "is_spheroid", False)
                 is_box = getattr(roi_state, "is_box", False)
                 if is_spheroid:
-                    self.roi_drag_start_radius_x = getattr(roi_state, "spheroid_radius_x", None) or getattr(roi_state, "spheroid_radius_xy", None) or getattr(roi_state, "spheroid_radius", None) or 10.0
-                    self.roi_drag_start_radius_y = getattr(roi_state, "spheroid_radius_y", None) or getattr(roi_state, "spheroid_radius_xy", None) or getattr(roi_state, "spheroid_radius", None) or 10.0
+                    self.roi_drag_start_radius_x = getattr(roi_state, "spheroid_radius_x", None) or getattr(roi_state, "spheroid_radius", None) or 10.0
+                    self.roi_drag_start_radius_y = getattr(roi_state, "spheroid_radius_y", None) or getattr(roi_state, "spheroid_radius", None) or 10.0
                     self.roi_drag_start_radius_z = getattr(roi_state, "spheroid_radius_z", None) or getattr(roi_state, "spheroid_radius", None) or 10.0
                     self.roi_drag_start_center = np.array(roi_state.spheroid_center)
                 else: # is_box
@@ -318,7 +318,6 @@ class NavigationTool:
                                     roi_state.spheroid_radius_x = new_r_x
                                     roi_state.spheroid_radius_y = new_r_y
                                     roi_state.spheroid_radius_z = new_r_z
-                                    roi_state.spheroid_radius_xy = new_r_x
                                     roi_state.spheroid_radius = new_r_x
                                 else: # is_box
                                     roi_state.box_size_x = new_r_x * 2.0
@@ -824,8 +823,8 @@ class InteractionManager:
             if is_spheroid:
                 if roi_state.spheroid_center is None:
                     continue
-                r_x = getattr(roi_state, "spheroid_radius_x", None) or getattr(roi_state, "spheroid_radius_xy", None) or getattr(roi_state, "spheroid_radius", None) or 10.0
-                r_y = getattr(roi_state, "spheroid_radius_y", None) or getattr(roi_state, "spheroid_radius_xy", None) or getattr(roi_state, "spheroid_radius", None) or 10.0
+                r_x = getattr(roi_state, "spheroid_radius_x", None) or getattr(roi_state, "spheroid_radius", None) or 10.0
+                r_y = getattr(roi_state, "spheroid_radius_y", None) or getattr(roi_state, "spheroid_radius", None) or 10.0
                 r_z = getattr(roi_state, "spheroid_radius_z", None) or getattr(roi_state, "spheroid_radius", None) or 10.0
                 center = roi_state.spheroid_center
             else: # is_box

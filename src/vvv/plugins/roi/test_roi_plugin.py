@@ -9,20 +9,14 @@ from vvv.plugins.roi.plugin_roi import RoiPlugin
 from vvv.core.roi_manager import ROIState
 
 
-class MockROI:
+class MockROI(ROIState):
+    """A real ROIState (every attribute the UI reads), with the test defaults."""
+
     def __init__(self, roi_id, name, color, visible=True, is_contour=False):
-        self.volume_id = roi_id
-        self.name = name
-        self.color = color
+        super().__init__(roi_id, name, color, source_mode="Binary", source_val=1.0)
         self.visible = visible
         self.is_contour = is_contour
-        self.opacity = 0.5
-        self.thickness = 1.0
-        self.source_mode = "Binary"
-        self.source_val = 1.0
-        self.source_type = "Binary"
         self.polygons = {0: {}, 1: {}, 2: {}}
-        self.version = 0
 
     def invalidate(self):
         """Invalidates the cached contour polygons and increments the version counter."""

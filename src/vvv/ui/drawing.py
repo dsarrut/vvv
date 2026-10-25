@@ -1985,13 +1985,11 @@ class OverlayDrawer:
         if is_spheroid:
             r_x = (
                 getattr(roi_state, "spheroid_radius_x", None)
-                or getattr(roi_state, "spheroid_radius_xy", None)
                 or getattr(roi_state, "spheroid_radius", None)
                 or 10.0
             )
             r_y = (
                 getattr(roi_state, "spheroid_radius_y", None)
-                or getattr(roi_state, "spheroid_radius_xy", None)
                 or getattr(roi_state, "spheroid_radius", None)
                 or 10.0
             )
