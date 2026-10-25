@@ -88,6 +88,11 @@ class OverlayDrawer:
 
     def __init__(self, viewer):
         self.viewer = viewer
+        # Last drawn states: a node is redrawn only when its state changes
+        self._last_axes_state = None
+        self._last_sb_state = None
+        self._last_leg_state = None
+        self._last_contour_image = None
 
     def _is_mip_active(self) -> bool:
         from vvv.ui.viewer import _safe_get_plugin
@@ -285,7 +290,7 @@ class OverlayDrawer:
     def draw_orientation_axes(self):
         viewer = self.viewer
         current_state = viewer.orientation
-        if getattr(self, "_last_axes_state", None) == current_state:
+        if self._last_axes_state == current_state:
             dpg.configure_item(viewer.axes_nodes[viewer.active_axes_idx], show=True)
             dpg.configure_item(
                 viewer.axes_nodes[1 - viewer.active_axes_idx], show=False
@@ -366,7 +371,7 @@ class OverlayDrawer:
             return
 
         current_state = (win_w, win_h, ppm)
-        if getattr(self, "_last_sb_state", None) == current_state:
+        if self._last_sb_state == current_state:
             return
         self._last_sb_state = current_state
 
@@ -433,7 +438,7 @@ class OverlayDrawer:
     def draw_legend(self):
         viewer = self.viewer
 
-        legend_mode = int(getattr(viewer, "show_legend", 0))
+        legend_mode = int(viewer.show_legend)
         if (
             not viewer.view_state
             or not legend_mode
@@ -443,7 +448,7 @@ class OverlayDrawer:
             self._last_leg_state = None
             return
 
-        if getattr(viewer.volume, "is_rgb", False):
+        if viewer.volume.is_rgb:
             if dpg.does_item_exist(viewer.legend_tag):
                 dpg.delete_item(viewer.legend_tag, children_only=True)
             self._last_leg_state = None
@@ -470,31 +475,31 @@ class OverlayDrawer:
         has_overlay = overlay_vs is not None
 
         base_sf = (
-            getattr(viewer.view_state.volume, "scale_factor", 1.0)
-            if getattr(viewer.view_state, "volume", None)
+            viewer.view_state.volume.scale_factor
+            if viewer.view_state.volume
             else 1.0
         )
         if not isinstance(base_sf, (int, float)) or base_sf <= 0 or np.isnan(base_sf):
             base_sf = 1.0
 
         ov_sf = (
-            getattr(overlay_vs.volume, "scale_factor", 1.0)
-            if has_overlay and getattr(overlay_vs, "volume", None)
+            overlay_vs.volume.scale_factor
+            if has_overlay and overlay_vs.volume
             else 1.0
         )
         if not isinstance(ov_sf, (int, float)) or ov_sf <= 0 or np.isnan(ov_sf):
             ov_sf = 1.0
 
         base_unit = (
-            getattr(viewer.view_state.volume, "scale_unit", None)
+            viewer.view_state.volume.scale_unit
             or getattr(viewer.view_state.volume, "unit", None)
-            if getattr(viewer.view_state, "volume", None)
+            if viewer.view_state.volume
             else None
         )
         ov_unit = (
-            getattr(overlay_vs.volume, "scale_unit", None)
+            overlay_vs.volume.scale_unit
             or getattr(overlay_vs.volume, "unit", None)
-            if has_overlay and getattr(overlay_vs, "volume", None)
+            if has_overlay and overlay_vs.volume
             else None
         )
 
@@ -530,13 +535,9 @@ class OverlayDrawer:
 
         base_thr = (
             viewer.view_state.display.min_threshold
-            if getattr(viewer.view_state, "display", None)
-            else None
         )
         ov_thr = (
-            overlay_vs.display.min_threshold
-            if has_overlay and getattr(overlay_vs, "display", None)
-            else None
+            overlay_vs.display.min_threshold if has_overlay else None
         )
 
         effective_cv = cv if legend_mode == 1 else None
@@ -579,7 +580,7 @@ class OverlayDrawer:
                 False,
             )
 
-        if getattr(self, "_last_leg_state", None) == current_state:
+        if self._last_leg_state == current_state:
             return
         self._last_leg_state = current_state
 
@@ -1210,24 +1211,22 @@ class OverlayDrawer:
         (threshold preview, ...), the overlay's (dose isocontours) and the
         visible ROIs in contour mode. Each has .polygons, .color, .thickness."""
         viewer = self.viewer
-        contour_dict = getattr(viewer.view_state, "contours", {})
+        contour_dict = viewer.view_state.contours
         contour_rois = list(contour_dict.values())
 
         # Include contours from active overlay (e.g. dose isocontours when dose is fused over base image)
-        ov_id = getattr(getattr(viewer.view_state.display, "overlay", None), "image_id", None)
-        if ov_id is not None and viewer.controller and hasattr(viewer.controller, "view_states"):
+        ov_id = viewer.view_state.display.overlay.image_id
+        if ov_id is not None and viewer.controller:
             ov_vs = viewer.controller.view_states.get(ov_id) or viewer.controller.view_states.get(str(ov_id))
             if ov_vs:
-                if hasattr(ov_vs, "contours"):
-                    contour_rois.extend(ov_vs.contours.values())
-                if hasattr(ov_vs, "rois"):
-                    for r_id, r_state in list(ov_vs.rois.items()):
-                        if r_state.visible and getattr(r_state, "is_contour", False):
-                            contour_rois.append(r_state)
+                contour_rois.extend(ov_vs.contours.values())
+                for r_id, r_state in list(ov_vs.rois.items()):
+                    if r_state.visible and r_state.is_contour:
+                        contour_rois.append(r_state)
 
         # Include ROIs in contour mode
         for r_id, r_state in list(viewer.view_state.rois.items()):
-            if r_state.visible and getattr(r_state, "is_contour", False):
+            if r_state.visible and r_state.is_contour:
                 contour_rois.append(r_state)
         return contour_rois
 
@@ -1243,7 +1242,7 @@ class OverlayDrawer:
                 dpg.configure_item(viewer.contour_node_tag, show=False)
             return
 
-        if not getattr(viewer.view_state.camera, "show_contour", True):
+        if not viewer.view_state.camera.show_contour:
             if dpg.does_item_exist(viewer.contour_node_tag):
                 dpg.configure_item(viewer.contour_node_tag, show=False)
             return
@@ -1260,7 +1259,7 @@ class OverlayDrawer:
         roi_visual_states = []
 
         for roi in contour_rois:
-            if getattr(roi, "visible", True):
+            if roi.visible:
                 poly_list = roi.polygons[viewer.orientation].get(viewer.slice_idx, [])
                 total_polys += len(poly_list)
 
@@ -1269,9 +1268,9 @@ class OverlayDrawer:
                 roi_visual_states.append(
                     (
                         id(roi),
-                        getattr(roi, "version", 0),
+                        roi.version,
                         tuple(roi.color),
-                        getattr(roi, "thickness", 1.0),
+                        roi.thickness,
                     )
                 )
 
@@ -1279,7 +1278,7 @@ class OverlayDrawer:
         ext_math_state = None
         thr_plugin = None
         dose_plugin = None
-        if viewer.controller.gui and hasattr(viewer.controller.gui, "plugins"):
+        if viewer.controller.gui:
             for p in viewer.controller.gui.plugins:
                 if p.plugin_id == "threshold_plugin":
                     thr_plugin = p
@@ -1296,7 +1295,7 @@ class OverlayDrawer:
                 )
 
         dose_isocontour_state = None
-        if dose_plugin and hasattr(dose_plugin, "_controller"):
+        if dose_plugin:
             dose_isocontour_state = dose_plugin._controller.get_isocontour_cache_token(viewer)
 
         current_state = (
@@ -1310,7 +1309,7 @@ class OverlayDrawer:
             dose_isocontour_state,
         )
 
-        if getattr(self, "_last_contour_image", None) != current_state:
+        if self._last_contour_image != current_state:
             dpg.delete_item(node, children_only=True)
 
             for roi in contour_rois:
@@ -1356,7 +1355,7 @@ class OverlayDrawer:
         if (
             not viewer.view_state
             or not viewer.volume
-            or not getattr(viewer.view_state.camera, "show_profiles", True)
+            or not viewer.view_state.camera.show_profiles
             or self._is_mip_active()
         ):
             if dpg.does_item_exist(viewer.profile_node_tag):
@@ -1440,20 +1439,20 @@ class OverlayDrawer:
                         # Determine active (manipulating) or hovered state
                         is_active = (
                             viewer.profile_mode == ProfileInteractionMode.MANIPULATING
-                            and getattr(viewer, "active_profile_id", None) == p_id
+                            and viewer.active_profile_id == p_id
                         )
                         active_handle = (
-                            getattr(viewer, "active_handle", None)
+                            viewer.active_handle
                             if is_active
                             else None
                         )
 
                         is_hovered = (
                             not is_active
-                            and getattr(viewer, "hovered_profile_id", None) == p_id
+                            and viewer.hovered_profile_id == p_id
                         )
                         hovered_handle = (
-                            getattr(viewer, "hovered_handle_key", None)
+                            viewer.hovered_handle_key
                             if is_hovered
                             else None
                         )
@@ -1500,7 +1499,7 @@ class OverlayDrawer:
                             )
 
                         # Draw hover marker from profile plot
-                        hovered_dist = getattr(profile, "hovered_distance", None)
+                        hovered_dist = profile.hovered_distance
                         if hovered_dist is not None:
                             total_dist = float(
                                 np.linalg.norm(profile.pt2_phys - profile.pt1_phys)
@@ -1556,16 +1555,16 @@ class OverlayDrawer:
         if (
             not viewer.view_state
             or not viewer.volume
-            or not getattr(viewer.view_state, "landmarks", None)
+            or not viewer.view_state.landmarks
             or self._is_mip_active()
         ):
-            if hasattr(viewer, "landmark_node_tag") and dpg.does_item_exist(
+            if dpg.does_item_exist(
                 viewer.landmark_node_tag
             ):
                 dpg.configure_item(viewer.landmark_node_tag, show=False)
             return
 
-        node = getattr(viewer, "landmark_node_tag", None)
+        node = viewer.landmark_node_tag
         if not node or not dpg.does_item_exist(node):
             return
 
@@ -1581,22 +1580,11 @@ class OverlayDrawer:
 
         # Check if Landmark Plugin Enhanced Visualization mode is active
         enhanced_vis = False
-        if (
-            hasattr(viewer, "controller")
-            and viewer.controller
-            and hasattr(viewer.controller, "gui")
-            and viewer.controller.gui
-        ):
-            lm_plugin = next(
-                (
-                    p
-                    for p in getattr(viewer.controller.gui, "plugins", [])
-                    if getattr(p, "plugin_id", None) == "landmark_plugin"
-                ),
-                None,
-            )
-            if lm_plugin and hasattr(lm_plugin, "_controller"):
-                enhanced_vis = lm_plugin._controller.is_enhanced_vis(viewer.image_id)
+        from vvv.ui.viewer import _safe_get_plugin
+
+        lm_plugin = _safe_get_plugin(viewer.controller, "landmark_plugin")
+        if lm_plugin:
+            enhanced_vis = lm_plugin._controller.is_enhanced_vis(viewer.image_id)
 
         max_depth = 15.5 if enhanced_vis else 6.5
         dim_base = 220 if enhanced_vis else 180
@@ -1701,7 +1689,7 @@ class OverlayDrawer:
                 )
 
             # Draw name label (and depth direction indicator in enhanced mode)
-            should_draw_label = getattr(lm, "show_name", True) and (
+            should_draw_label = lm.show_name and (
                 is_in_plane or enhanced_vis
             )
             if should_draw_label:
@@ -1744,7 +1732,7 @@ class OverlayDrawer:
         vs = viewer.view_state
         vol = viewer.volume
 
-        node_tag = getattr(viewer, "vector_field_node_tag", None)
+        node_tag = viewer.vector_field_node_tag
         if not node_tag or not dpg.does_item_exist(node_tag):
             return
 
@@ -1754,12 +1742,12 @@ class OverlayDrawer:
 
         dpg.delete_item(node_tag, children_only=True)
 
-        is_base_dvf = getattr(vol, "is_dvf", False)
+        is_base_dvf = vol.is_dvf
         draw_base = is_base_dvf and vs.dvf.display_mode == "Vector Field"
 
         ov_id = vs.display.overlay.image_id
         ov_vs = viewer.controller.view_states.get(ov_id) if ov_id else None
-        is_ov_dvf = getattr(ov_vs.volume, "is_dvf", False) if ov_vs else False
+        is_ov_dvf = ov_vs.volume.is_dvf if ov_vs else False
         draw_ov = is_ov_dvf and vs.display.overlay.mode == "DVF"
 
         if not draw_base and not draw_ov:
@@ -1955,20 +1943,16 @@ class OverlayDrawer:
             return
 
         # Check if we should draw the hovered or active handle
-        hovered_roi_id = getattr(viewer, "hovered_roi_id", None)
-        hovered_roi_part = getattr(viewer, "hovered_roi_part", None)
+        hovered_roi_id = viewer.hovered_roi_id
+        hovered_roi_part = viewer.hovered_roi_part
 
         # Safe lookup of active tool and roi_drag_id/action
         active_roi_drag_id = None
         active_roi_drag_action = None
-        if (
-            viewer.controller.gui
-            and hasattr(viewer.controller.gui, "interaction")
-            and viewer.controller.gui.interaction
-        ):
+        if viewer.controller.gui:
             tool = viewer.controller.gui.interaction.active_tool
-            active_roi_drag_id = getattr(tool, "roi_drag_id", None)
-            active_roi_drag_action = getattr(tool, "roi_drag_action", None)
+            active_roi_drag_id = tool.roi_drag_id
+            active_roi_drag_action = tool.roi_drag_action
 
         target_roi_id = active_roi_drag_id or hovered_roi_id
         if not target_roi_id or target_roi_id not in vs.rois:
@@ -1976,33 +1960,33 @@ class OverlayDrawer:
             return
 
         roi_state = vs.rois[target_roi_id]
-        is_spheroid = getattr(roi_state, "is_spheroid", False)
-        is_box = getattr(roi_state, "is_box", False)
+        is_spheroid = roi_state.is_spheroid
+        is_box = roi_state.is_box
         if not roi_state.visible or (not is_spheroid and not is_box):
             dpg.configure_item(node, show=False)
             return
 
         if is_spheroid:
             r_x = (
-                getattr(roi_state, "spheroid_radius_x", None)
-                or getattr(roi_state, "spheroid_radius", None)
+                roi_state.spheroid_radius_x
+                or roi_state.spheroid_radius
                 or 10.0
             )
             r_y = (
-                getattr(roi_state, "spheroid_radius_y", None)
-                or getattr(roi_state, "spheroid_radius", None)
+                roi_state.spheroid_radius_y
+                or roi_state.spheroid_radius
                 or 10.0
             )
             r_z = (
-                getattr(roi_state, "spheroid_radius_z", None)
-                or getattr(roi_state, "spheroid_radius", None)
+                roi_state.spheroid_radius_z
+                or roi_state.spheroid_radius
                 or 10.0
             )
             center = roi_state.spheroid_center
         else:  # is_box
-            r_x = getattr(roi_state, "box_size_x", 20.0) / 2.0
-            r_y = getattr(roi_state, "box_size_y", 20.0) / 2.0
-            r_z = getattr(roi_state, "box_size_z", 20.0) / 2.0
+            r_x = roi_state.box_size_x / 2.0
+            r_y = roi_state.box_size_y / 2.0
+            r_z = roi_state.box_size_z / 2.0
             center = roi_state.box_center
 
         if center is None or r_x is None:

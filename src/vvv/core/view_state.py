@@ -67,6 +67,7 @@ class CameraState:
         self.show_grid = False
         self.show_legend = 0
         self.show_profiles = True
+        self.show_contour = True  # not saved
         self.show_filename = 0
 
         # State-Only Sync Targets

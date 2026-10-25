@@ -395,10 +395,13 @@ class SliceViewer:
         self.profile_mode = ProfileInteractionMode.IDLE
         self.active_profile_id = None
         self.active_handle = None  # "start" or "end"
+        self.hovered_profile_id = None
+        self.hovered_handle_key = None
 
         # ROI Tool Transient Interaction State
         self.roi_mode = RoiInteractionMode.IDLE
         self.hovered_roi_id = None
+        self.hovered_roi_part = None
 
         # Landmark Tool Transient Interaction State
         self.landmark_mode = LandmarkInteractionMode.IDLE
