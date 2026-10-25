@@ -142,6 +142,7 @@ def main():
         print("Loading files into VVV Controller...")
         c = Controller()
         c.gui = MagicMock()
+        c.gui.get_plugin.return_value = None  # no plugins loaded
         c.gui.ui_cfg = {"layout": {"viewport_padding": 4}}
 
         base_id = c.file.load_image(base_path)
