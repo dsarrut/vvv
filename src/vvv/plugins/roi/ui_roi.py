@@ -3,6 +3,7 @@ import logging
 import dearpygui.dearpygui as dpg
 from vvv.plugins.plugin_api import PluginAPI, PluginTagMixin
 from vvv.plugins.roi.control_roi import CREATED_SOURCE, roi_source
+from vvv.ui.ui_interaction import is_super_down
 from vvv.ui.ui_components import (
     FIELD_RIGHT_MARGIN,
     ICON_EXPORT,
@@ -1228,8 +1229,7 @@ class RoiPluginUI(PluginTagMixin):
         is_ctrl = (
             dpg.is_key_down(dpg.mvKey_LControl)
             or dpg.is_key_down(dpg.mvKey_RControl)
-            or (hasattr(dpg, "mvKey_LWin") and dpg.is_key_down(dpg.mvKey_LWin))
-            or (hasattr(dpg, "mvKey_RWin") and dpg.is_key_down(dpg.mvKey_RWin))
+            or is_super_down()
         )
 
         visible_ids = list(self.roi_selectables.keys())

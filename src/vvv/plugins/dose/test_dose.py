@@ -118,6 +118,36 @@ class TestDosePlugin(unittest.TestCase):
         reset_btn = self.plugin._ui._t("btn_reset_levels")
         self.assertTrue(dpg.get_item_configuration(reset_btn)["enabled"])
 
+    def test_greying_out_walks_the_tools_only_on_a_change(self):
+        """update_ui runs at every frame of a W/L drag: the whole tools tree is
+        walked only when the enabled state changes (it cost ~2 ms a frame)."""
+        import vvv.plugins.dose.ui_dose as ui_dose
+
+        ui = self.plugin._ui
+        calls = []
+        real = ui_dose.set_controls_enabled
+
+        def counting(container, enabled):
+            calls.append(enabled)
+            real(container, enabled)
+
+        with patch.object(ui_dose, "set_controls_enabled", counting):
+            for _ in range(3):
+                ui.update_ui(self.mock_api)  # HU: greyed out, walked once
+            self.assertEqual(calls, [False])
+            self.mock_viewer.volume.unit = "Gy"
+            ui.update_ui(self.mock_api)
+            ui.update_ui(self.mock_api)
+            self.assertEqual(calls, [False, True])
+            # Rebuilt level rows start enabled: greyed out again at the next update
+            self.mock_viewer.volume.unit = "HU"
+            ui.update_ui(self.mock_api)
+            ui.rebuild_levels_ui(self.mock_api)
+            ui.update_ui(self.mock_api)
+            self.assertEqual(calls, [False, True, False, False])
+        reset_btn = ui._t("btn_reset_levels")
+        self.assertFalse(dpg.get_item_configuration(reset_btn)["enabled"])
+
     def test_enable_button_assigns_gy_to_base(self):
         self.mock_viewer.volume.unit = "HU"
         self.assertFalse(self.plugin._controller.get_dose_target_info()[0])

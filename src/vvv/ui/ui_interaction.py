@@ -26,11 +26,29 @@ def custom_is_key_down(key):
 dpg.is_key_down = custom_is_key_down
 
 
-# The key codes DPG knows (512-630): is_key_down on any other number reads
-# past ImGui's key table (it crashed a CI run on Windows)
+# ImGui's key codes (ImGuiKey_NamedKey_BEGIN = 512, below the 4096 modifier
+# flags): is_key_down on any other number reads outside ImGui's key table (it
+# crashed CI runs on Windows). A few DPG names keep old GLFW codes, below 512
+# (mvKey_LWin 343, mvKey_Prior 266, ...): they are not keys for is_key_down.
+IMGUI_KEY_MIN, IMGUI_KEY_MAX = 512, 4095
 _ALL_KEYS = sorted(
-    {v for n, v in vars(dpg).items() if n.startswith("mvKey_") and isinstance(v, int) and 0 < v < 4096}
+    {
+        v
+        for n, v in vars(dpg).items()
+        if n.startswith("mvKey_") and isinstance(v, int) and IMGUI_KEY_MIN <= v <= IMGUI_KEY_MAX
+    }
 )
+
+
+# Left / Right Super (Cmd on macOS, Win on Windows) in ImGui's key codes: DPG
+# has no name for them, and its mvKey_LWin / mvKey_RWin (343 / 347) are GLFW
+# codes, outside the key table
+KEY_LSUPER = dpg.mvKey_LControl + 3  # ImGuiKey_LeftSuper (530)
+KEY_RSUPER = dpg.mvKey_RControl + 3  # ImGuiKey_RightSuper (534)
+
+
+def is_super_down():
+    return dpg.is_key_down(KEY_LSUPER) or dpg.is_key_down(KEY_RSUPER)
 
 
 def clear_modifier_overrides():
@@ -43,7 +61,7 @@ def clear_modifier_overrides():
 
 
 def clear_pan_modifier_overrides():
-    for k in [dpg.mvKey_LWin, dpg.mvKey_RWin, dpg.mvKey_LControl, dpg.mvKey_RControl]:
+    for k in [KEY_LSUPER, KEY_RSUPER, dpg.mvKey_LControl, dpg.mvKey_RControl]:
         try:
             if _original_is_key_down(k):
                 _overridden_keys[k] = False
@@ -1127,12 +1145,7 @@ class InteractionManager:
             dpg.mvKey_RControl
         )
 
-        is_cmd = False
-        if hasattr(dpg, "mvKey_LWin"):
-            is_cmd = is_cmd or dpg.is_key_down(dpg.mvKey_LWin)
-        if hasattr(dpg, "mvKey_RWin"):
-            is_cmd = is_cmd or dpg.is_key_down(dpg.mvKey_RWin)
-        self.modifiers["cmd"] = is_cmd
+        self.modifiers["cmd"] = is_super_down()
 
         # Rising-edge hints: show once when a modifier key is first pressed
         if self.modifiers["shift"] and not self._prev_modifiers["shift"]:

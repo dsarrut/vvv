@@ -1,0 +1,75 @@
+{
+  "schema": 1,
+  "bench": "startup",
+  "date": "2026-10-25T15:12:39",
+  "env": {
+    "host": "claviceps",
+    "platform": "Darwin 27.0.0 (arm64)",
+    "cpu_count": 10,
+    "python": "3.14.5",
+    "numpy": "2.4.6",
+    "simpleitk": "2.5.5",
+    "dearpygui": "2.3.1",
+    "numba": "0.65.1",
+    "commit": "bdd2eea",
+    "branch": "sidecar_doc",
+    "dirty": false
+  },
+  "params": {
+    "warmup": 1,
+    "boots": 5,
+    "boot_path": "vvv.cli.main",
+    "data_version": 1,
+    "quick": false
+  },
+  "loadavg": {
+    "start": [
+      6.29,
+      5.83,
+      6.5
+    ],
+    "end": [
+      10.84,
+      6.8,
+      6.82
+    ]
+  },
+  "results": {
+    "startup.empty": {
+      "median_ms": 583.279,
+      "p90_ms": 591.981,
+      "mean_ms": 583.512,
+      "n": 5
+    },
+    "startup.ct_large": {
+      "median_ms": 761.745,
+      "p90_ms": 783.428,
+      "mean_ms": 758.397,
+      "n": 5
+    },
+    "startup.four_images": {
+      "median_ms": 757.027,
+      "p90_ms": 801.728,
+      "mean_ms": 756.73,
+      "n": 5
+    },
+    "startup.workspace": {
+      "median_ms": 779.885,
+      "p90_ms": 804.502,
+      "mean_ms": 784.357,
+      "n": 5
+    },
+    "startup.python": {
+      "median_ms": 21.603,
+      "p90_ms": 28.952,
+      "mean_ms": 23.333,
+      "n": 20
+    },
+    "startup.imports": {
+      "median_ms": 140.92,
+      "p90_ms": 163.055,
+      "mean_ms": 148.633,
+      "n": 20
+    }
+  }
+}

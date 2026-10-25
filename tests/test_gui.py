@@ -1724,17 +1724,34 @@ def test_transform_sidecar_applied_at_load_and_unloaded(headless_gui_app, tmp_pa
 
 
 def test_clear_modifier_overrides_probes_only_real_keys(monkeypatch):
-    """is_key_down on a number that is not a DPG key reads past ImGui's key
-    table (an access violation on a Windows CI run): only real keys are probed."""
+    """is_key_down on a number that is not an ImGui key code reads outside
+    ImGui's key table (access violations on Windows CI runs): only real keys
+    are probed, also for the pan modifiers (mvKey_LWin is an old GLFW code)."""
     import vvv.ui.ui_interaction as ui_interaction
 
-    real = {
-        v for n, v in vars(dpg).items() if n.startswith("mvKey_") and isinstance(v, int) and v > 0
-    }
-    probed = []
-    monkeypatch.setattr(ui_interaction, "_original_is_key_down", lambda k: probed.append(k) or False)
-    ui_interaction.clear_modifier_overrides()
-    assert probed and set(probed) <= real
+    def is_imgui_key(k):
+        return ui_interaction.IMGUI_KEY_MIN <= k <= ui_interaction.IMGUI_KEY_MAX
+
+    assert not is_imgui_key(dpg.mvKey_LWin) and is_imgui_key(dpg.mvKey_LControl)
+    for clear in (ui_interaction.clear_modifier_overrides, ui_interaction.clear_pan_modifier_overrides):
+        probed = []
+        monkeypatch.setattr(ui_interaction, "_original_is_key_down", lambda k: probed.append(k) or False)
+        clear()
+        assert probed and all(is_imgui_key(k) for k in probed), clear.__name__
+
+
+def test_super_key_uses_imgui_codes(monkeypatch):
+    """Cmd / Win are ImGuiKey_LeftSuper / RightSuper (530 / 534), between the
+    Ctrl / Shift / Alt keys and Menu: not DPG's mvKey_LWin / mvKey_RWin."""
+    import vvv.ui.ui_interaction as ui_interaction
+
+    assert (ui_interaction.KEY_LSUPER, ui_interaction.KEY_RSUPER) == (530, 534)
+    assert dpg.mvKey_LAlt == 529 and dpg.mvKey_RAlt == 533 and dpg.mvKey_Menu == 535
+    down = {ui_interaction.KEY_RSUPER}
+    monkeypatch.setattr(dpg, "is_key_down", lambda k: k in down)
+    assert ui_interaction.is_super_down()
+    down.clear()
+    assert not ui_interaction.is_super_down()
 
 
 def test_shortcut_keys_in_tooltips_follow_the_settings(headless_gui_app):
