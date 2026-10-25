@@ -2,10 +2,8 @@ import numpy as np
 import pytest
 import SimpleITK as sitk
 
+from vvv.app import build_app
 from vvv.core.view_state import DisplayState
-from vvv.core.controller import Controller
-from vvv.ui.gui import MainGUI
-from vvv.ui.viewer import SliceViewer
 from vvv.plugins.intensity.control_intensity import HistogramState, IntensityController
 
 
@@ -226,11 +224,7 @@ def dvf_viewer(tmp_path_factory):
     path = tmp_path_factory.mktemp("dvf_hist") / "dvf.nrrd"
     sitk.WriteImage(sitk_img, str(path))
 
-    controller = Controller()
-    for tag in ["V1", "V2", "V3", "V4"]:
-        controller.viewers[tag] = SliceViewer(tag, controller)
-    gui = MainGUI(controller)
-    controller.gui = gui
+    controller, gui = build_app(use_history=True)
     vs_id = controller.file.load_image(str(path))
     viewer = controller.viewers["V1"]
     viewer.set_image(vs_id)

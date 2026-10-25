@@ -2,11 +2,9 @@ import pytest
 import numpy as np
 import SimpleITK as sitk
 import dearpygui.dearpygui as dpg
-from vvv.core.controller import Controller
+from vvv.app import build_app
 from vvv.core.view_state import DVFState
 from vvv.maths.image import SliceRenderer
-from vvv.ui.gui import MainGUI
-from vvv.ui.viewer import SliceViewer
 from vvv.utils import ViewMode
 
 # Center voxel carries vector [3, 4, 0] → magnitude = 5.0 (3-4-5 triple)
@@ -29,11 +27,7 @@ def synthetic_dvf_path(tmp_path_factory):
 
 @pytest.fixture
 def dvf_app(synthetic_dvf_path):
-    controller = Controller()
-    for tag in ["V1", "V2", "V3", "V4"]:
-        controller.viewers[tag] = SliceViewer(tag, controller)
-    gui = MainGUI(controller)
-    controller.gui = gui
+    controller, gui = build_app(use_history=True)
     vs_id = controller.file.load_image(synthetic_dvf_path)
     viewer = controller.viewers["V1"]
     viewer.set_image(vs_id)

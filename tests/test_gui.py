@@ -3,11 +3,9 @@ import pytest
 import platform
 import numpy as np
 import SimpleITK as sitk
-from vvv.ui.gui import MainGUI
+from vvv.app import build_app
 from vvv.utils import ViewMode
 import dearpygui.dearpygui as dpg
-from vvv.ui.viewer import SliceViewer
-from vvv.core.controller import Controller
 from vvv.ui.ui_sequences import create_boot_sequence
 from vvv.ui.ui_sync import handle_sync_group_change, handle_wl_group_change
 from vvv.config import WL_PRESETS
@@ -17,14 +15,7 @@ from vvv.config import WL_PRESETS
 @pytest.fixture
 def headless_gui_app(synthetic_volume_factory):
     """Sets up the Controller and GUI, returning the app and a pre-loaded Base Image."""
-    controller = Controller()
-    controller.use_history = False  # Disable history for pure UI testing
-
-    for tag in ["V1", "V2", "V3", "V4"]:
-        controller.viewers[tag] = SliceViewer(tag, controller)
-
-    gui = MainGUI(controller)
-    controller.gui = gui
+    controller, gui = build_app(use_history=False)  # no history for pure UI testing
 
     base_path = synthetic_volume_factory("base.nii.gz", val=100.0)
     vs_id = controller.file.load_image(base_path)
@@ -1856,3 +1847,43 @@ def test_workspace_load_and_save_errors(headless_gui_app, tmp_path, monkeypatch)
         assert gui.current_workspace_path == before
     finally:
         os.chmod(locked, 0o700)
+
+
+def test_help_texts_show_the_current_keys(headless_gui_app):
+    """S5: the MIP help and the 4D time slider tooltip show their keys from
+    the key map (the MIP help said "(M)" and "Left/Right arrows", but the
+    rotation is the scroll: wheel, Up / Down); a key change updates them, and
+    the hints of deleted items (rebuilt panels) are dropped."""
+    from vvv.ui.ui_components import refresh_shortcut_hints, register_shortcut_hint, shortcut_key
+    from vvv.ui.ui_image_list import _time_tip_text
+
+    controller, gui, viewer, base_id = headless_gui_app
+    keys = controller.settings.data["shortcuts"]
+    mip_help = next(
+        item for item, text, action, kind in gui.shortcut_hints
+        if kind == "fn" and dpg.get_value(item).startswith("MIP (Maximum")
+    )
+    text = dpg.get_value(mip_help)
+    assert f"MIP Mode ({keys['toggle_mip']})" in text
+    up, down = shortcut_key(gui, "scroll_up"), shortcut_key(gui, "scroll_down")  # arrows
+    assert f"mouse wheel, {up} / {down}" in text
+    assert "Left/Right" not in text
+    back, fwd = shortcut_key(gui, "time_backward"), shortcut_key(gui, "time_forward")
+    assert _time_tip_text(gui) == f"Time frame of this 4D image (keys {back} / {fwd})"
+
+    old = dict(keys)
+    try:
+        keys.update(toggle_mip="J", time_forward="", scroll_up="W")
+        refresh_shortcut_hints(gui)
+        assert "MIP Mode (J)" in dpg.get_value(mip_help) and f"W / {down}" in dpg.get_value(mip_help)
+        assert _time_tip_text(gui) == "Time frame of this 4D image"  # no key: no hint
+    finally:
+        keys.clear()
+        keys.update(old)
+        refresh_shortcut_hints(gui)
+
+    gone = dpg.add_text("temporary", parent="PrimaryWindow")
+    register_shortcut_hint(gui, gone, lambda: "x", None, kind="fn")
+    dpg.delete_item(gone)
+    register_shortcut_hint(gui, mip_help, lambda: dpg.get_value(mip_help), None, kind="fn")
+    assert all(dpg.does_item_exist(h[0]) for h in gui.shortcut_hints)

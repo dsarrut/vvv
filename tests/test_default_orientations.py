@@ -3,19 +3,15 @@
 import numpy as np
 import SimpleITK as sitk
 
-from vvv.core.controller import Controller
-from vvv.ui.viewer import SliceViewer
+from vvv.app import build_app
 from vvv.utils import ViewMode
 
 A, S, C = ViewMode.AXIAL, ViewMode.SAGITTAL, ViewMode.CORONAL
 
 
 def _controller(tmp_path, n):
-    c = Controller()
-    c.use_history = False
+    c, _ = build_app(use_history=False, with_gui=False)
     c.save_settings = lambda: None
-    for tag in ["V1", "V2", "V3", "V4"]:
-        c.viewers[tag] = SliceViewer(tag, c)
     ids = []
     for i in range(n):
         p = str(tmp_path / f"img{i}.nii")

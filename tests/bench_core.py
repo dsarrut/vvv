@@ -184,20 +184,14 @@ def _make_actions(c, v1):
 def worker_main(config, data_dir, n_frames, n_warmup):
     import dearpygui.dearpygui as dpg
     import vvv.ui.gui as G
+    from vvv.app import build_app
     from vvv.cli import parse_cli_arguments
-    from vvv.core.controller import Controller
-    from vvv.ui.viewer import SliceViewer
 
     paths = make_data(data_dir)
     G.time = _NoSleepTime()
 
     dpg.create_context()
-    c = Controller()
-    c.use_history = False
-    for tag in ["V1", "V2", "V3", "V4"]:
-        c.viewers[tag] = SliceViewer(tag, c)
-    gui = G.MainGUI(c)
-    c.gui = gui
+    c, gui = build_app(use_history=False)
     dpg.create_viewport(title="vvv bench", width=VIEWPORT[0], height=VIEWPORT[1], vsync=False)
 
     ds = paths["ct"] if config == "ct" else f"{paths['ct']},{paths['pet']},hot"

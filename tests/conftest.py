@@ -1,9 +1,8 @@
 import pytest
 import numpy as np
 import SimpleITK as sitk
-from vvv.core.controller import Controller
+from vvv.app import build_app
 from vvv.ui.gui import MainGUI
-from vvv.ui.viewer import SliceViewer
 
 def pytest_configure(config):
     try:
@@ -41,12 +40,8 @@ def headless_gui_app(tmp_path):
     Creates a fully initialized headless Controller and GUI with 2 synthetic
     volumes of differing resolutions to test complex spatial math.
     """
-    controller = Controller()
-    controller.use_history = False  # Disable history for pure UI testing
-
-    # ADD THIS: Build the 4 viewers before the GUI boots!
-    for tag in ["V1", "V2", "V3", "V4"]:
-        controller.viewers[tag] = SliceViewer(tag, controller)
+    # The 4 viewers before the GUI boots; no history for pure UI testing
+    controller, _ = build_app(use_history=False, with_gui=False)
 
     # --- Create Synthetic Volume 1 (High Res) ---
     arr1 = np.ones((20, 30, 30), dtype=np.float32) * 100.0
@@ -96,10 +91,7 @@ def headless_4d_overlay_app(tmp_path):
 
     Returns: (controller, gui, viewer_v1, vs_id_3d, viewer_v2, vs_id_4d)
     """
-    controller = Controller()
-    controller.use_history = False
-    for tag in ["V1", "V2", "V3", "V4"]:
-        controller.viewers[tag] = SliceViewer(tag, controller)
+    controller, _ = build_app(use_history=False, with_gui=False)
 
     # 3D volume: all voxels = 100.0
     arr3d = np.full((20, 30, 30), 100.0, dtype=np.float32)

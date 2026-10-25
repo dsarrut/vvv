@@ -6,11 +6,9 @@ import os
 import re
 import sys
 import click
-from vvv.ui.gui import MainGUI
+from vvv.app import build_app
 import dearpygui.dearpygui as dpg
-from vvv.ui.viewer import SliceViewer
 from vvv.maths.image import VolumeData
-from vvv.core.controller import Controller
 from vvv.utils import get_resource_path
 from vvv.config import COLORMAPS, DEFAULT_SETTINGS
 from vvv.ui.ui_screen import main_screen_size, start_window_geometry
@@ -572,15 +570,7 @@ def main(no_history, datasets, linkall, sync, linkall_wl, debug, fast_gl, screen
     set_macos_dock_info("VVV", icon_path=icon_png)
 
     dpg.create_context()
-    controller = Controller()
-
-    controller.use_history = not no_history
-
-    for tag in ["V1", "V2", "V3", "V4"]:
-        controller.viewers[tag] = SliceViewer(tag, controller)
-
-    gui = MainGUI(controller)
-    controller.gui = gui
+    controller, gui = build_app(use_history=not no_history)
     layout = controller.settings.data["layout"]
     default = DEFAULT_SETTINGS["layout"]
     win_w, win_h, win_x, win_y = start_window_geometry(

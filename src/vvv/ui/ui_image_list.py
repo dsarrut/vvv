@@ -8,6 +8,8 @@ from vvv.ui.ui_components import (
     build_help_button,
     build_beginner_tooltip,
     build_tooltip,
+    shortcut_key,
+    register_shortcut_hint,
     build_renamable_input,
 )
 
@@ -87,6 +89,13 @@ def sync_image_list_ui(gui):
                 name = gui.controller.get_image_name(vs_id)
                 if dpg.get_value(input_tag) != name:
                     dpg.set_value(input_tag, name)
+
+
+def _time_tip_text(gui):
+    """The 4D time slider tooltip, with the keys of the current key map."""
+    back, fwd = shortcut_key(gui, "time_backward"), shortcut_key(gui, "time_forward")
+    keys = f" (keys {back} / {fwd})" if back and fwd else ""
+    return f"Time frame of this 4D image{keys}"
 
 
 def _on_time_slider_changed(gui, vs_id, time_idx):
@@ -317,7 +326,7 @@ def refresh_image_list_ui(gui):
                         is_enabled = not is_dvf or vs.dvf.display_mode == "Component"
 
                         reserve_w = 20 + len(str(vs.volume.num_timepoints)) * 8
-                        dpg.add_slider_int(
+                        time_slider = dpg.add_slider_int(
                             tag=f"slider_time_{vs_id}",
                             width=-reserve_w,
                             min_value=0,
@@ -328,6 +337,9 @@ def refresh_image_list_ui(gui):
                             user_data=vs_id,
                         )
                         dpg.add_text(f"/ {vs.volume.num_timepoints}")
+                        time_tip = dpg.generate_uuid()
+                        build_tooltip(time_slider, _time_tip_text(gui), gui, text_tag=time_tip)
+                        register_shortcut_hint(gui, time_tip, lambda: _time_tip_text(gui), None, kind="fn")
 
                     build_help_button(
                         "The 4 checkboxes assign this image to the 4 viewers (V1: Top Left, V2: Top Right, V3: Bottom Left, V4: Bottom Right).",

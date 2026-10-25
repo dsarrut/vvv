@@ -135,8 +135,10 @@ def build_dialog_footer(buttons, keys_for=None):
             dpg.add_key_press_handler(key=dpg.mvKey_Escape, callback=on_key(buttons[0][1]))
 
 
-def build_help_button(text, gui):
-    """A reusable help icon button that only appears when Beginner Mode is active."""
+def build_help_button(text, gui, text_fn=None):
+    """A reusable help icon button that only appears when Beginner Mode is active.
+    text_fn: makes the text from the key map (shortcut_key); it is made again
+    when the keys change in Settings (then text is not used)."""
     tag = dpg.generate_uuid()
     btn = dpg.add_button(label="\uf059", width=20, tag=tag, show=getattr(gui, "is_beginner_mode", False))
     if dpg.does_item_exist("icon_font_tag"):
@@ -144,8 +146,13 @@ def build_help_button(text, gui):
     if dpg.does_item_exist("help_button_theme"):
         dpg.bind_item_theme(btn, "help_button_theme")
         
-    build_beginner_tooltip(btn, text, gui)
-    
+    if text_fn:
+        text_tag = dpg.generate_uuid()
+        build_beginner_tooltip(btn, text_fn(), gui, text_tag=text_tag)
+        register_shortcut_hint(gui, text_tag, text_fn, None, kind="fn")
+    else:
+        build_beginner_tooltip(btn, text, gui)
+
     if not hasattr(gui, "beginner_tags"):
         gui.beginner_tags = []
     gui.beginner_tags.append(tag)
@@ -509,12 +516,15 @@ def _with_shortcut(gui, text, action):
 
 def register_shortcut_hint(gui, item, text, action, kind="text"):
     """Keep `item` showing the key of `action` when it changes in Settings:
-    kind 'text' (a text item: `text (key)`) or 'menu' (a menu item's shortcut)."""
+    kind 'text' (a text item: `text (key)`), 'menu' (a menu item's shortcut)
+    or 'fn' (a text item set to text(), a function of the key map)."""
     g = _real_gui(gui)
     if g is None:
         return
     if not isinstance(getattr(g, "shortcut_hints", None), list):
         g.shortcut_hints = []
+    # Rebuilt panels (the image list) register again: drop the deleted items
+    g.shortcut_hints = [h for h in g.shortcut_hints if dpg.does_item_exist(h[0])]
     g.shortcut_hints.append((item, text, action, kind))
 
 
@@ -527,6 +537,8 @@ def refresh_shortcut_hints(gui):
             continue
         if kind == "menu":
             dpg.configure_item(item, shortcut=shortcut_key(g, action))
+        elif kind == "fn":
+            dpg.set_value(item, text())
         else:
             dpg.set_value(item, _with_shortcut(g, text, action))
 

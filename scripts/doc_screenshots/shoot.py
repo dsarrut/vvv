@@ -72,20 +72,13 @@ def main():
             wait = float(opts.pop(0))
 
     from vvv import cli
-    from vvv.core.controller import Controller
-    from vvv.ui.gui import MainGUI
-    from vvv.ui.viewer import SliceViewer
+    from vvv.app import build_app
 
     workspaces = [f for f in vvv_args if f.lower().endswith(".vvw")]
     images = cli.parse_cli_arguments([f for f in vvv_args if not f.lower().endswith(".vvw")])
 
     dpg.create_context()
-    ctrl = Controller()
-    ctrl.use_history = False
-    for tag in ["V1", "V2", "V3", "V4"]:
-        ctrl.viewers[tag] = SliceViewer(tag, ctrl)
-    gui = MainGUI(ctrl)
-    ctrl.gui = gui
+    ctrl, gui = build_app(use_history=False)
     dpg.create_viewport(title="VVV", width=size[0], height=size[1], x_pos=40, y_pos=40)
 
     def capture_task():

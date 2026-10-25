@@ -6,10 +6,25 @@ from vvv.ui.ui_components import (
     build_beginner_tooltip,
     build_stepped_slider,
     build_tooltip,
+    shortcut_key,
     FIELD_RIGHT_MARGIN,
 )
 from vvv.plugins.plugin_api import PluginTagMixin
 from vvv.utils import ViewMode
+
+
+def _help_text(api):
+    """The MIP help, with the keys of the current key map."""
+    mip = shortcut_key(api, "toggle_mip")
+    up, down = shortcut_key(api, "scroll_up"), shortcut_key(api, "scroll_down")
+    rotate = "mouse wheel" + (f", {up} / {down}" if up and down else "")
+    return (
+        "MIP (Maximum Intensity Projection):\n"
+        f"- MIP Mode{f' ({mip})' if mip else ''}: Toggle 3D maximum intensity projection in the active viewer.\n"
+        "- Projection Axis: Automatically matches current view mode.\n"
+        "- Depth Cueing: Attenuate distant voxels to convey 3D depth.\n"
+        f"- Rotation Angle ({rotate}): Rotate projection angle around current slice."
+    )
 
 
 class MIPPluginUI(PluginTagMixin):
@@ -22,14 +37,7 @@ class MIPPluginUI(PluginTagMixin):
 
         with dpg.group(parent=parent or 0, tag=self._plugin_id):
             build_section_title("MIP Viewer", cfg_c["text_header"])
-            build_help_button(
-                "MIP (Maximum Intensity Projection):\n"
-                "- MIP Mode (M): Toggle 3D maximum intensity projection in the active viewer.\n"
-                "- Projection Axis: Automatically matches current view mode.\n"
-                "- Depth Cueing: Attenuate distant voxels to convey 3D depth.\n"
-                "- Rotation Angle (Left/Right arrows): Rotate projection angle around current slice.",
-                api,
-            )
+            build_help_button(None, api, text_fn=lambda: _help_text(api))
 
             active_title = dpg.add_text(
                 "No Image Selected",
