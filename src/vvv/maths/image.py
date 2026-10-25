@@ -1503,7 +1503,7 @@ class VolumeData:
                                 self.unit_source = f"{os.path.basename(json_candidate)}"
                                 return
                 except Exception:
-                    pass
+                    logger.debug("_detect_unit_and_source: ignored error", exc_info=True)
 
         # 2. Check DICOM metadata (force=True parses any file as DICOM: on a
         # NIfTI it never finds a modality, but can take 100+ ms per call)

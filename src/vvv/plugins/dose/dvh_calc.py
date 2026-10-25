@@ -1,6 +1,9 @@
+import logging
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional, Tuple, Any
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -73,7 +76,7 @@ def compute_roi_dvh(
                     new_d_sitk.SetMetaData(k, d_sitk.GetMetaData(k))
                 d_sitk = new_d_sitk
         except Exception:
-            pass
+            logger.debug("compute_roi_dvh: ignored error", exc_info=True)
 
     try:
         dose_in_roi = sitk.Resample(

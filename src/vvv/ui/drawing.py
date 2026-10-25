@@ -1,3 +1,4 @@
+import logging
 import numpy as np
 from vvv.config import COLORMAPS
 import dearpygui.dearpygui as dpg
@@ -7,6 +8,8 @@ from vvv.utils import (
     ProfileInteractionMode,
     RoiInteractionMode,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def world_to_screen_pos(viewer, pt_phys):
@@ -599,7 +602,7 @@ class OverlayDrawer:
                 if ts and ts[0] > 0:
                     return float(ts[0])
             except Exception:
-                pass
+                logger.debug("_text_w: ignored error", exc_info=True)
             return float(len(txt) * 7.0)
 
         def _center_x(cx, txt):

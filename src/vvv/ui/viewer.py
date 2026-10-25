@@ -2263,7 +2263,7 @@ class SliceViewer:
                 f"MIP: {'on' if state.mip_enabled else 'off'}"
             )
         except Exception:
-            pass
+            logger.debug("action_toggle_mip: ignored error", exc_info=True)
 
     def action_toggle_strips(self):
         vs = self.view_state
@@ -3639,7 +3639,7 @@ class SliderOverlay:
                             if mx >= (win_w - 90):
                                 in_hover_zone = True
                         except Exception:
-                            pass
+                            logger.debug("tick: ignored error", exc_info=True)
 
                     if (
                         is_slider_active

@@ -110,7 +110,7 @@ def _compute_label_bboxes(img, labels=None):
             if stats.HasLabel(val_int):
                 bboxes[val_int] = stats.GetBoundingBox(val_int)
     except Exception:
-        pass
+        logger.debug("_compute_label_bboxes: ignored error", exc_info=True)
     return bboxes
 
 

@@ -155,3 +155,25 @@ class TestHistoryManager(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_unreadable_settings_and_history_are_kept_aside(tmp_path, caplog):
+    """An unreadable settings / history file is renamed to <name>.corrupt
+    (with a warning) instead of being silently overwritten by the next save:
+    the history was lost without a word."""
+    import logging
+
+    from vvv.utils import read_json_or_keep_aside
+
+    bad = tmp_path / "history.json"
+    bad.write_text('{"a": 1,')  # cut mid-write
+    with caplog.at_level(logging.WARNING, logger="vvv"):
+        assert read_json_or_keep_aside(bad, "history") is None
+    assert not bad.exists()
+    assert (tmp_path / "history.json.corrupt").read_text() == '{"a": 1,'
+    assert "Unreadable history file" in caplog.text
+
+    good = tmp_path / "settings.json"
+    good.write_text('{"b": 2}')
+    assert read_json_or_keep_aside(good, "settings") == {"b": 2}
+    assert read_json_or_keep_aside(tmp_path / "missing.json", "settings") is None

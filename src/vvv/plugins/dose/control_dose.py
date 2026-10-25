@@ -1,3 +1,4 @@
+import logging
 from dataclasses import dataclass, field, asdict
 from typing import Optional, TYPE_CHECKING, Tuple, Any, List, Dict
 import numpy as np
@@ -6,6 +7,8 @@ from vvv.plugins.plugin_api import PluginTagMixin, PluginAPI
 from vvv.maths.contours import ContourROI, extract_2d_contours_from_slice
 from vvv.maths.image import SliceRenderer
 from vvv.utils import compute_adaptive_step_and_speed
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from .ui_dose import DosePluginUI
@@ -313,7 +316,7 @@ class DosePluginController(PluginTagMixin):
                 # finds the closed contour enclosing the maximum voxel(s)
                 raw_thr = raw_max * 0.999
         except Exception:
-            pass
+            logger.debug("compute_raw_threshold_for_level: ignored error", exc_info=True)
         return raw_thr
 
     def _sync_isocontour_rois(self, target_id: str, target_vs, state: DoseIsocontourState) -> Dict[int, ContourROI]:

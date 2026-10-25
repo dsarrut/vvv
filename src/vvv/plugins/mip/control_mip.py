@@ -1,3 +1,4 @@
+import logging
 from typing import Optional, Dict
 import threading
 import time
@@ -5,6 +6,8 @@ import numpy as np
 import dearpygui.dearpygui as dpg
 from vvv.plugins.plugin_api import PluginAPI, PluginTagMixin
 from vvv.utils import ViewMode
+
+logger = logging.getLogger(__name__)
 
 
 def normalize_mip_angle(angle: float) -> float:
@@ -364,7 +367,7 @@ class MIPPluginController(PluginTagMixin):
             try:
                 dpg.set_value(user_data["tag"], new_val)
             except Exception:
-                pass
+                logger.debug("on_rotation_step_button: ignored error", exc_info=True)
         self._mark_viewer_dirty(viewer)
         self.propagate_rotation(viewer.image_id, state.rotation_angles)
         self._api.request_refresh()
@@ -382,7 +385,7 @@ class MIPPluginController(PluginTagMixin):
             try:
                 dpg.set_value(user_data["tag"], new_val)
             except Exception:
-                pass
+                logger.debug("on_step_size_button: ignored error", exc_info=True)
         self._api.request_refresh()
 
     def get_mip_projection(
@@ -665,7 +668,7 @@ class MIPPluginController(PluginTagMixin):
                                 ):
                                     viewer.controller.ui_needs_refresh = True
                             except Exception:
-                                pass
+                                logger.debug("_compute_and_cache: ignored error", exc_info=True)
             except Exception as e:
                 import traceback
 

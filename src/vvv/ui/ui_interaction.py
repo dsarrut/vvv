@@ -1,3 +1,4 @@
+import logging
 import math
 import numpy as np
 from vvv.utils import (
@@ -11,6 +12,8 @@ from vvv.utils import (
 from vvv.ui.drawing import world_to_screen_pos
 import dearpygui.dearpygui as dpg
 from vvv.ui.ui_components import REGISTERED_INPUT_FILTER_TAGS
+
+logger = logging.getLogger(__name__)
 
 # Keys forced up: a key whose release vvv never gets (a native file dialog, an
 # app switch with Cmd+Tab) stays down for ImGui; it is read as up until it is
@@ -1070,7 +1073,7 @@ class InteractionManager:
                     if dpg.is_item_focused(alias) or dpg.is_item_active(alias):
                         return
         except Exception:
-            pass
+            logger.debug("on_key_press: ignored error", exc_info=True)
 
         # ROI list window arrow key navigation
         roi_plugin = (
@@ -1094,7 +1097,7 @@ class InteractionManager:
                             and pos[1] <= m_pos[1] <= pos[1] + size[1]
                         )
                 except Exception:
-                    pass
+                    logger.debug("on_key_press: ignored error", exc_info=True)
             if is_hovering_list:
                 if app_data in (dpg.mvKey_Up, dpg.mvKey_Down):
                     roi_plugin._controller.move_roi_selection(

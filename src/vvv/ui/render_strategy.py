@@ -388,7 +388,7 @@ def try_set_gl_nearest(nearest: bool = True, width: int | None = None, height: i
                     # Restore binding
                     lib.glBindTexture(_GL_TEXTURE_2D, prev.value)
                 except Exception:
-                    pass
+                    logger.debug("_set: ignored error", exc_info=True)
                 return found
 
             _gl_nearest_fn = _set

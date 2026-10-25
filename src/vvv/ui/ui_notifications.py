@@ -1,6 +1,9 @@
+import logging
 import time
 import dearpygui.dearpygui as dpg
 from vvv.ui.ui_components import build_dialog_footer
+
+logger = logging.getLogger(__name__)
 
 
 def show_message(title, message):
@@ -19,7 +22,7 @@ def show_message(title, message):
                         dpg.set_value(text_tag, prev_val + "\n\n" + message)
                     return
         except Exception:
-            pass
+            logger.debug("show_message: ignored error", exc_info=True)
 
     for tag in (modal_tag, handler_tag, text_tag):
         if dpg.does_item_exist(tag):

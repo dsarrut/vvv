@@ -185,6 +185,30 @@ def write_json_atomic(path, data, indent=4):
         raise
 
 
+def read_json_or_keep_aside(path, what):
+    """The JSON content of path (None if there is no file). An unreadable file
+    is renamed to <path>.corrupt, with a warning, instead of being silently
+    replaced by the next save (the user's settings / history would be lost)."""
+    import json
+    import logging
+
+    path = os.fspath(path)
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        aside = path + ".corrupt"
+        try:
+            os.replace(path, aside)
+            kept = f"kept as {os.path.basename(aside)}"
+        except OSError:
+            kept = "could not be kept aside"
+        logging.getLogger("vvv").warning(f"Unreadable {what} file {path} ({e}): {kept}; starting from defaults")
+        return None
+
+
 def get_config_dir() -> Path:
     """Gets the user configuration directory in a cross-platform way."""
     if "PYTEST_CURRENT_TEST" in os.environ:

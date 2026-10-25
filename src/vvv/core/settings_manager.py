@@ -3,7 +3,7 @@ import copy
 import json
 from pathlib import Path
 from vvv.config import DEFAULT_SETTINGS
-from vvv.utils import get_config_dir, write_json_atomic
+from vvv.utils import get_config_dir, read_json_or_keep_aside, write_json_atomic
 import logging
 
 logger = logging.getLogger(__name__)
@@ -28,13 +28,9 @@ class SettingsManager:
                 default_dict[key] = value
 
     def load(self):
-        if self.config_path.exists():
-            try:
-                with open(self.config_path, "r") as f:
-                    user_settings = json.load(f)
-                    self._deep_update(self.data, user_settings)
-            except Exception as e:
-                logger.warning(f"Error loading settings: {e}")
+        user_settings = read_json_or_keep_aside(self.config_path, "settings")
+        if isinstance(user_settings, dict):
+            self._deep_update(self.data, user_settings)
 
     def reset(self):
         self.data = copy.deepcopy(DEFAULT_SETTINGS)

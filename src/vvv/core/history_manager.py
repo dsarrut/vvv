@@ -2,7 +2,7 @@ import os
 import json
 import numpy as np
 from pathlib import Path
-from vvv.utils import get_config_dir, get_history_path_key, write_json_atomic
+from vvv.utils import get_config_dir, get_history_path_key, read_json_or_keep_aside, write_json_atomic
 
 
 class HistoryManager:
@@ -14,12 +14,9 @@ class HistoryManager:
         self.load()
 
     def load(self):
-        if self.history_path.exists():
-            try:
-                with open(self.history_path, "r") as f:
-                    self.data = json.load(f)
-            except Exception as e:
-                pass
+        data = read_json_or_keep_aside(self.history_path, "history")
+        if isinstance(data, dict):
+            self.data = data
 
     def save(self):
         self.config_dir.mkdir(parents=True, exist_ok=True)
