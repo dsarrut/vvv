@@ -2340,11 +2340,22 @@ class MainGUI:
             if not file_path.endswith(".vvw"):
                 file_path += ".vvw"
 
+            self._save_workspace_to(file_path)
+
+    def _save_workspace_to(self, file_path):
+        """Save the workspace; on an error (no write access, disk full) a dialog,
+        and the current workspace (Save / Reload target) is unchanged."""
+        try:
             self.controller.file.save_workspace(file_path, self.workspace_view())
-            self.current_workspace_path = file_path
-            self.workspace_image_ids = set(self.controller.view_states)
-            self.refresh_workspace_bar()
-            self.show_status_message(f"Workspace saved: {os.path.basename(file_path)}")
+        except Exception as e:
+            logger.warning(f"Saving the workspace {file_path} failed", exc_info=True)
+            self.show_message("Error", f"The workspace was not saved:\n{file_path}\n{e}")
+            return False
+        self.current_workspace_path = file_path
+        self.workspace_image_ids = set(self.controller.view_states)
+        self.refresh_workspace_bar()
+        self.show_status_message(f"Workspace saved: {os.path.basename(file_path)}")
+        return True
 
     def on_open_workspace_clicked(self, sender=None, app_data=None, user_data=None):
         file_path = open_file_dialog(
@@ -2352,21 +2363,15 @@ class MainGUI:
         )
 
         if isinstance(file_path, str):
-            self.current_workspace_path = file_path
-            self.refresh_workspace_bar()
+            # current_workspace_path is set by the sequence, once the workspace is loaded
             self.tasks.append(load_workspace_sequence(self, self.controller, file_path))
 
     def on_save_workspace_current_clicked(
         self, sender=None, app_data=None, user_data=None
     ):
         if self.current_workspace_path:
-            self.controller.file.save_workspace(self.current_workspace_path, self.workspace_view())
-            self.workspace_image_ids = set(self.controller.view_states)
-            self.refresh_workspace_bar()
-            self.show_status_message(
-                f"Workspace saved: {os.path.basename(self.current_workspace_path)}"
-            )
-            self.controller.ui_needs_refresh = True
+            if self._save_workspace_to(self.current_workspace_path):
+                self.controller.ui_needs_refresh = True
         else:
             self.on_save_workspace_clicked()
 
@@ -2517,9 +2522,8 @@ class MainGUI:
         show_help_window(self)
 
     def load_workspace_sequence(self, file_path):
-        """Wrapper to pass the CLI workspace request into the external Sequence Manager."""
-        self.current_workspace_path = file_path
-        self.refresh_workspace_bar()
+        """Wrapper to pass the CLI workspace request into the external Sequence Manager
+        (it sets current_workspace_path once the workspace is loaded)."""
         return load_workspace_sequence(self, self.controller, file_path)
 
     def create_boot_sequence(

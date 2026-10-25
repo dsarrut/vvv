@@ -1312,17 +1312,55 @@ def _restore_workspace_rois(controller, ws, id_map, warnings, resolve_workspace_
 
 
 def load_workspace_sequence(gui, controller, filepath):
-    """Safely restores a full workspace using ID mapping, strict hierarchy, and Parallel Loading."""
+    """[generator] Restore a workspace. Any error (unreadable file, not a vvv
+    workspace, a bug) ends in one dialog, the traceback in the log; the
+    current workspace (the Save / Reload target) is then kept."""
+    try:
+        yield from _load_workspace_sequence(gui, controller, filepath)
+    except Exception as e:
+        logger.warning(f"Loading the workspace {filepath} failed", exc_info=True)
+        hide_loading_modal()
+        if gui:
+            gui.workspace_image_ids = set()  # a reload must not close another one's images
+            yield
+            gui.show_message(
+                "Error", f"Cannot load the workspace {os.path.basename(filepath)}:\n{_error_text(e)}"
+            )
+
+
+def _error_text(e):
+    """What went wrong, for a message: 'KeyError: path' says more than 'path'."""
+    return str(e) if isinstance(e, (OSError, WorkspaceError)) else f"{type(e).__name__}: {e}"
+
+
+class WorkspaceError(ValueError):
+    """The file is not a vvv workspace (or not one this version can read)."""
+
+
+def _read_workspace_file(filepath):
     import json
+
+    with open(filepath, "r") as f:
+        try:
+            ws = json.load(f)
+        except json.JSONDecodeError as e:
+            raise WorkspaceError(f"not a valid JSON file ({e})") from e
+    if not isinstance(ws, dict):
+        raise WorkspaceError("not a vvv workspace (no workspace object)")
+    for key in ("images", "viewers"):
+        if not isinstance(ws.get(key, {}), dict):
+            raise WorkspaceError(f'not a vvv workspace ("{key}" is not a mapping)')
+    bad = [k for k, v in ws.get("images", {}).items() if not isinstance(v, dict)]
+    if bad:
+        raise WorkspaceError(f"not a vvv workspace (image {bad[0]} is not a mapping)")
+    return ws
+
+
+def _load_workspace_sequence(gui, controller, filepath):
+    """Safely restores a full workspace using ID mapping, strict hierarchy, and Parallel Loading."""
     from vvv.utils import ViewMode
 
-    try:
-        with open(filepath, "r") as f:
-            ws = json.load(f)
-    except Exception as e:
-        gui.show_status_message(f"Failed to load workspace: {e}")
-        gui.workspace_image_ids = set()  # a reload must not close another one's images
-        return
+    ws = _read_workspace_file(filepath)
 
     display_name = "Reading Workspace Data..."
     show_loading_modal("Loading image...", display_name)
@@ -1399,6 +1437,8 @@ def load_workspace_sequence(gui, controller, filepath):
     for old_id, img_data in ws.get("images", {}).items():
         # Add Base Image
         raw_path = img_data.get("path")
+        if not raw_path:
+            warnings.append(f"Image {old_id}: no file path in the workspace")
         if raw_path:
             if isinstance(raw_path, list):
                 resolved_list = resolve_workspace_path(raw_path)
@@ -1669,6 +1709,8 @@ def load_workspace_sequence(gui, controller, filepath):
             legacy_overlay_map.values()
         )
         gui.workspace_id_map = dict(id_map)  # workspace image id -> loaded id
+        gui.current_workspace_path = filepath  # the Save / Reload target, once loaded
+        gui.refresh_workspace_bar()
         for plugin in gui.plugins:
             if hasattr(plugin, "_controller") and hasattr(
                 plugin._controller, "clear_viewer_cache"

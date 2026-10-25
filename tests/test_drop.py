@@ -66,7 +66,7 @@ class TestOnFileDrop:
         gui.on_file_drop(None, ["/path/session.vvw"], None)
         mock_ws.assert_called_once()
         assert mock_ws.call_args[0][2] == "/path/session.vvw"
-        assert gui.current_workspace_path == "/path/session.vvw"
+        assert gui.current_workspace_path is None  # set by the sequence, once loaded
         mock_batch.assert_not_called()
 
     @patch("vvv.ui.gui.load_batch_images_sequence", return_value=iter([]))
@@ -90,7 +90,7 @@ class TestOnFileDrop:
         _make_mock_gui(gui)
         gui.on_file_drop(None, ["/first.vvw", "/scan.nii", "/second.vvw"], None)
         assert [c[0][2] for c in mock_ws.call_args_list] == ["/first.vvw", "/second.vvw"]
-        assert gui.current_workspace_path == "/second.vvw"
+        assert gui.current_workspace_path is None  # set by each sequence, once loaded
         assert len(gui.tasks) == 3 and mock_batch.call_count == 1
 
 
