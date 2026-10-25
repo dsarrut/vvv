@@ -34,6 +34,7 @@ class DosePluginUI(PluginTagMixin):
             ref_label="Prescription",
         )
         self.dvh_win = DVHWindow(plugin_id=self._plugin_id, controller=self._c)
+        self._content_enabled = None  # last state set: the tree walk runs on changes only
         self.dvh_win.on_visibility_changed = self.set_dvh_button_state
 
     def _get_scaling_target(self):
@@ -247,6 +248,8 @@ class DosePluginUI(PluginTagMixin):
             return
 
         dpg.delete_item(levels_group, children_only=True)
+        if self._content_enabled is False:  # new rows start enabled: grey them out again
+            self._content_enabled = None
 
         is_active, target_vol, is_overlay, current_unit, target_id, target_vs = (
             self._c.get_dose_target_info()
@@ -304,6 +307,13 @@ class DosePluginUI(PluginTagMixin):
                     api=self._api,
                 )
 
+    def _set_content_enabled(self, enabled: bool) -> None:
+        """Grey out / enable the tools, only on a change: walking the whole
+        tree at every update (each frame of a W/L drag) cost ~1 ms a frame."""
+        if enabled != self._content_enabled:
+            set_controls_enabled(self._t("group_dose_content"), enabled)
+            self._content_enabled = enabled
+
     def update_ui(self, api: PluginAPI) -> None:
         if not dpg.does_item_exist(self._t("group_dose_requirement")):
             return
@@ -315,7 +325,7 @@ class DosePluginUI(PluginTagMixin):
         if is_active and target_vol is not None and target_id is not None:
             # Show active tools container
             dpg.configure_item(self._t("group_dose_requirement"), show=False)
-            set_controls_enabled(self._t("group_dose_content"), True)  # then per-control states below
+            self._set_content_enabled(True)  # then per-control states below
 
             role = "Overlay" if is_overlay else "Base"
             display_name = getattr(target_vol, "name", "Image")
@@ -380,7 +390,7 @@ class DosePluginUI(PluginTagMixin):
         else:
             # Show requirement banner
             dpg.configure_item(self._t("group_dose_requirement"), show=True)
-            set_controls_enabled(self._t("group_dose_content"), False)
+            self._set_content_enabled(False)
 
             viewer = api.get_active_viewer()
             if viewer and viewer.volume:

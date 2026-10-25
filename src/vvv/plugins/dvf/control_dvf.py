@@ -7,6 +7,7 @@ class DvfController(PluginTagMixin):
     def __init__(self, plugin_id: str):
         self._plugin_id = plugin_id
         self._api: PluginAPI  # bound in DvfPlugin.create_ui
+        self._controls_enabled = None  # last state set: the tree walk runs on changes only
 
     def _sync_float(self, tag_name: str, value: float):
         """Helper to update a slider only if the user isn't currently dragging it."""
@@ -58,8 +59,11 @@ class DvfController(PluginTagMixin):
         vector_slider_tags = ["thickness", "min_arrow", "min_draw", "color_max_mag", "sampling", "scale", "precision"]
         if dpg.does_item_exist(warning_tag):
             dpg.configure_item(warning_tag, show=not is_dvf)
-        # Controls always shown, greyed out without a DVF (shows what exists)
-        set_controls_enabled(self._t("controls"), is_dvf)
+        # Controls always shown, greyed out without a DVF (shows what exists).
+        # Only on a change: walking the tree at every update cost ~1 ms a frame
+        if is_dvf != self._controls_enabled:
+            set_controls_enabled(self._t("controls"), is_dvf)
+            self._controls_enabled = is_dvf
 
         if not is_dvf:
             vol = viewer.volume if viewer else None
