@@ -3,6 +3,7 @@ import logging
 import dearpygui.dearpygui as dpg
 from vvv.plugins.plugin_api import PluginAPI, PluginTagMixin
 from vvv.plugins.roi.control_roi import CREATED_SOURCE, roi_source
+from vvv.core.background_job import start_must_finish
 from vvv.ui.ui_interaction import is_super_down
 from vvv.ui.ui_components import (
     FIELD_RIGHT_MARGIN,
@@ -1889,9 +1890,7 @@ class RoiPluginUI(PluginTagMixin):
 
             self.api.run_on_main_thread(_on_done)
 
-        import threading
-
-        threading.Thread(target=_save, daemon=True).start()
+        start_must_finish(_save, name="save_rois")  # the shutdown waits for it
 
 
     def on_roi_stats_radius_x_slider_changed(self, sender, app_data, user_data):

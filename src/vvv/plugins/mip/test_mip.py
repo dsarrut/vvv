@@ -350,3 +350,28 @@ def test_mip_precompute_debounce_and_invalidation():
 
 
 
+
+
+def test_mip_destroy_waits_for_the_running_projection():
+    """destroy() stops the precompute workers and waits for the projection that
+    is running: a numba / OpenMP kernel alive at exit aborts the process."""
+    import threading
+    import time
+
+    from vvv.plugins.mip.control_mip import MIPPluginController
+
+    controller = MIPPluginController("mip_plugin")
+    stop, finished = threading.Event(), threading.Event()
+
+    def worker():  # like _run: checks the stop between two projections only
+        stop.wait(5.0)
+        time.sleep(0.3)  # the projection still running when the stop came
+        finished.set()
+
+    t = threading.Thread(target=worker, daemon=True)
+    controller._precompute_stops["V1"] = stop
+    controller._precompute_threads.append(t)
+    t.start()
+    controller.destroy()
+    assert finished.is_set() and not t.is_alive()
+    assert controller._precompute_threads == []

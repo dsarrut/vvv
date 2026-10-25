@@ -16,6 +16,7 @@ from vvv.ui.ui_settings import SettingsWindow
 from vvv.plugins.plugin_api import PluginAPI
 from vvv.plugins import discover_plugins
 from vvv.ui.ui_interaction import InteractionManager
+from vvv.core.background_job import wait_for_must_finish
 from vvv.ui.ui_components import (
     build_section_title,
     build_help_button,
@@ -2721,6 +2722,7 @@ class MainGUI:
         return time.perf_counter()
 
     def _shutdown(self):
+        wait_for_must_finish()  # a save cut at exit leaves a truncated file
         for plugin in self.plugins:
             self._call_plugin(plugin, "save_settings", self.plugin_api)
             self._call_plugin(plugin, "destroy")

@@ -19,7 +19,7 @@ from vvv.core.history_manager import HistoryManager
 from vvv.core.settings_manager import SettingsManager
 from vvv.core.profile_manager import ProfileManager
 from vvv.core.overlay_resampler import resample_base, resample_overlay
-from vvv.core.background_job import JobRunner
+from vvv.core.background_job import JobRunner, start_must_finish
 import logging
 
 logger = logging.getLogger(__name__)
@@ -450,7 +450,7 @@ class Controller:
 
             self.call_on_main(_commit)
 
-        threading.Thread(target=_save, daemon=True).start()
+        start_must_finish(_save, name="save_image")  # the shutdown waits for it
 
     def _volume_to_save(self, vs_id):
         vol = self.volumes.get(vs_id)

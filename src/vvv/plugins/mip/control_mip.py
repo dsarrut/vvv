@@ -36,6 +36,7 @@ class MIPPluginController(PluginTagMixin):
         self._caches: Dict[str, dict] = {}
         self._cache_locks: Dict[str, threading.Lock] = {}
         self._precompute_stops: Dict[str, threading.Event] = {}
+        self._precompute_threads: list = []  # joined in destroy (see there)
         self._precompute_params: Dict[str, tuple] = {}
         # Debounced precompute: viewer tag -> due time (time.monotonic()). No timer
         # thread: tick() (main thread) re-renders the viewer when due, and that
@@ -212,6 +213,13 @@ class MIPPluginController(PluginTagMixin):
         for stop_event in self._precompute_stops.values():
             stop_event.set()
         self._precompute_stops.clear()
+        # A worker stops between two projections only: wait for the running
+        # one. A numba / OpenMP kernel still running at interpreter exit
+        # aborts the process (libomp "Thread identifier invalid").
+        end = time.monotonic() + 5.0
+        for t in self._precompute_threads:
+            t.join(max(0.0, end - time.monotonic()))
+        self._precompute_threads.clear()
         self._precompute_params.clear()
         for lock, cache in zip(self._cache_locks.values(), self._caches.values()):
             with lock:
@@ -704,7 +712,10 @@ class MIPPluginController(PluginTagMixin):
                             return
                         _compute_and_cache(layer_arr, layer_key)
 
-        threading.Thread(target=_run, daemon=True).start()
+        self._precompute_threads = [t for t in self._precompute_threads if t.is_alive()]
+        worker = threading.Thread(target=_run, daemon=True, name=f"mip_precompute_{tag}")
+        self._precompute_threads.append(worker)
+        worker.start()
 
     def on_save_movie_clicked(self, sender, app_data, user_data):
         if not self._api:
