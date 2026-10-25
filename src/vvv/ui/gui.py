@@ -117,6 +117,9 @@ class MainGUI:
         # internal states
         self._is_roi_tab_active = None
         self._hide_av_panel = None
+        self.nav_items = []  # (label, tag), built by build_main_layout
+        self._window_short = None  # set by the layout fit (short window: panels folded)
+        self._ch_auto_folded = False
         self._last_interaction_time = 0.0
         self._last_mouse_pos = (0.0, 0.0)
         self.active_viewer_show_fusion: bool = False
@@ -183,7 +186,7 @@ class MainGUI:
 
     def get_plugin(self, plugin_id: str) -> Any | None:
         """Get plugin by its ID."""
-        if not hasattr(self, "_plugin_map") or len(self._plugin_map) != len(
+        if len(self._plugin_map) != len(
             self.plugins
         ):
             self._plugin_map = {p.plugin_id: p for p in self.plugins}
@@ -326,15 +329,15 @@ class MainGUI:
     def _safe_configure(self, tag, **kwargs):
         if dpg.does_item_exist(tag):
             dpg.configure_item(tag, **kwargs)
-        if "show" in kwargs and hasattr(self, "tooltip_parent_map"):
+        if "show" in kwargs:
             for tt_tag, p in self.tooltip_parent_map.items():
                 if p == tag and dpg.does_item_exist(tt_tag):
-                    is_icon = tt_tag in getattr(self, "icon_tooltip_tags", [])
+                    is_icon = tt_tag in self.icon_tooltip_tags
                     tt_show = kwargs["show"] if is_icon else (self.is_beginner_mode and kwargs["show"])
                     try:
                         dpg.configure_item(tt_tag, show=tt_show)
                     except Exception:
-                        pass
+                        logger.debug(f"tooltip {tt_tag}: show not set", exc_info=True)
 
     def _set_enabled(self, enabled, *tags):
         for tag in tags:
@@ -441,11 +444,11 @@ class MainGUI:
 
                 # Verify that active_tab still exists in the nav items
                 active_exists = any(
-                    tag == getattr(self, "active_tab", None)
+                    tag == self.active_tab
                     for _, tag in self.nav_items
                 )
                 if not active_exists:
-                    old_tab = getattr(self, "active_tab", None)
+                    old_tab = self.active_tab
                     self.active_tab = "tab_images"
                     if old_tab and dpg.does_item_exist(old_tab):
                         dpg.configure_item(old_tab, show=False)
@@ -644,7 +647,7 @@ class MainGUI:
                                 for v in self.controller.viewers.values():
                                     v.is_geometry_dirty = True
                                     v.drawer._last_leg_state = None
-                                    if getattr(v, "show_legend", False):
+                                    if v.show_legend:
                                         v.drawer.draw_legend()
                                 self.controller.ui_needs_refresh = True
 
@@ -670,7 +673,7 @@ class MainGUI:
                                 for v in self.controller.viewers.values():
                                     v.is_geometry_dirty = True
                                     v.drawer._last_leg_state = None
-                                    if getattr(v, "show_legend", False):
+                                    if v.show_legend:
                                         v.drawer.draw_legend()
                                 self.controller.ui_needs_refresh = True
 
@@ -741,13 +744,15 @@ class MainGUI:
         try:
             return bool(check(self.plugin_api))
         except Exception:
+            # A plugin bug: keep its button normal, but tell it
+            logger.warning(f"{tag}.is_applicable failed", exc_info=True)
             return True
 
     def _bind_nav_theme(self, tag):
         btn = f"nav_btn_{tag}"
         if not dpg.does_item_exist(btn):
             return
-        if tag == getattr(self, "active_tab", None):
+        if tag == self.active_tab:
             theme = "active_nav_button_theme"
         elif not self._nav_applicable(tag):
             theme = "theme_rounded_nav_muted"
@@ -763,7 +768,7 @@ class MainGUI:
         cfg_h = self.ui_cfg["layout"]["nav_btn_h"]
         cur = getattr(self, "_nav_btn_h", cfg_h)
         top_now = dpg.get_item_rect_size("nav_top_group")[1] if dpg.does_item_exist("nav_top_group") else 0
-        n = len(getattr(self, "nav_items", []))
+        n = len(self.nav_items)
         if not top_now or not n:
             return cur
         fixed = top_now - n * cur  # spacing + workspace icons
@@ -805,7 +810,7 @@ class MainGUI:
         At start, a short window folds it unless a fold choice is saved.
         Called on every resize; the automatic folds are not saved."""
         short = window_h < AUTO_FOLD_BELOW_H
-        was_short = getattr(self, "_window_short", None)
+        was_short = self._window_short
         self._window_short = short
         if short == was_short:
             return
@@ -816,7 +821,7 @@ class MainGUI:
             fold = "ch" not in self.folded_panels
         else:
             fold = False
-            if not getattr(self, "_ch_auto_folded", False):
+            if not self._ch_auto_folded:
                 return
         if fold:
             self._ch_auto_folded = True
@@ -1231,7 +1236,7 @@ class MainGUI:
         roi_plugin = next(
             (p for p in self.plugins if p.plugin_id == "roi_plugin"), None
         )
-        if roi_plugin and hasattr(roi_plugin, "_ui"):
+        if roi_plugin:
             roi_plugin._ui.refresh_rois_ui()
 
     def refresh_recent_menu(self):
@@ -1259,12 +1264,8 @@ class MainGUI:
         if not self.context_viewer:
             return None
         if self.active_viewer_show_fusion:
-            ov = (
-                getattr(self.context_viewer.view_state.display, "overlay", None)
-                if self.context_viewer.view_state
-                else None
-            )
-            ov_id = getattr(ov, "image_id", None) if ov else None
+            vs = self.context_viewer.view_state
+            ov_id = vs.display.overlay.image_id if vs else None
             if ov_id and ov_id in self.controller.volumes:
                 return ov_id
         return self.context_viewer.image_id
@@ -1272,12 +1273,7 @@ class MainGUI:
     def on_toggle_active_viewer_fusion(self, sender=None, app_data=None, user_data=None):
         if not self.context_viewer or not self.context_viewer.view_state:
             return
-        ov = (
-            getattr(self.context_viewer.view_state.display, "overlay", None)
-            if self.context_viewer.view_state
-            else None
-        )
-        ov_id = getattr(ov, "image_id", None) if ov else None
+        ov_id = self.context_viewer.view_state.display.overlay.image_id
         if ov_id and ov_id in self.controller.volumes:
             self.active_viewer_show_fusion = not self.active_viewer_show_fusion
             self.update_sidebar_info(self.context_viewer)
@@ -1285,7 +1281,7 @@ class MainGUI:
 
     def update_sidebar_info(self, viewer):
         has_image = (
-            viewer is not None and getattr(viewer, "view_state", None) is not None
+            viewer is not None and viewer.view_state is not None
         )
         has_rois = (
             has_image
@@ -1358,12 +1354,7 @@ class MainGUI:
 
         assert viewer is not None
 
-        ov = (
-            getattr(viewer.view_state.display, "overlay", None)
-            if viewer.view_state
-            else None
-        )
-        ov_id = getattr(ov, "image_id", None) if ov else None
+        ov_id = viewer.view_state.display.overlay.image_id if viewer.view_state else None
         has_overlay = bool(ov_id and ov_id in self.controller.volumes)
 
         if not has_overlay:
@@ -1503,7 +1494,7 @@ class MainGUI:
                 dpg.set_value("info_val", "---")
 
             # 3. Update FOV and PPM
-            ppm = getattr(vs.camera, "target_ppm", None)
+            ppm = vs.camera.target_ppm
             if ppm is None:
                 ppm = viewer.get_pixels_per_mm()
 
@@ -1519,6 +1510,7 @@ class MainGUI:
 
         except Exception:
             # If ANY math fails during rapid mouse manipulation, safely default to "---"
+            logger.debug("crosshair info not updated", exc_info=True)
             self._reset_crosshair_info()
 
     def set_context_viewer(self, viewer):
@@ -1533,7 +1525,7 @@ class MainGUI:
         roi_plugin = next(
             (p for p in self.plugins if p.plugin_id == "roi_plugin"), None
         )
-        if roi_plugin and hasattr(roi_plugin, "_controller"):
+        if roi_plugin:
             ctrl = roi_plugin._controller
             if ctrl.active_roi_id:
                 if (
@@ -1584,7 +1576,7 @@ class MainGUI:
         valid_tags = []
         for tag in self.beginner_tags:
             if dpg.does_item_exist(tag):
-                parent = getattr(self, "tooltip_parent_map", {}).get(tag)
+                parent = self.tooltip_parent_map.get(tag)
                 p_show = (
                     bool(dpg.get_item_configuration(parent).get("show", True))
                     if (parent and dpg.does_item_exist(parent))
@@ -1624,10 +1616,10 @@ class MainGUI:
 
         delay = get_tooltip_delay(self, always_on=True)
         valid_icon_tags = []
-        for tag in getattr(self, "icon_tooltip_tags", []):
+        for tag in self.icon_tooltip_tags:
             if dpg.does_item_exist(tag):
                 try:
-                    parent = getattr(self, "tooltip_parent_map", {}).get(tag)
+                    parent = self.tooltip_parent_map.get(tag)
                     if parent and dpg.does_item_exist(parent):
                         p_show = bool(
                             dpg.get_item_configuration(parent).get("show", True)
@@ -1636,7 +1628,7 @@ class MainGUI:
                     else:
                         dpg.configure_item(tag, delay=delay)
                 except Exception:
-                    pass
+                    logger.debug(f"tooltip {tag}: delay not set", exc_info=True)
                 valid_icon_tags.append(tag)
         self.icon_tooltip_tags = valid_icon_tags
 
@@ -1759,7 +1751,7 @@ class MainGUI:
         viewer = self.context_viewer
         if viewer and viewer.image_id and viewer.image_id in self.controller.volumes:
             vol = self.controller.volumes[viewer.image_id]
-            path = getattr(vol, "path", None)
+            path = vol.path
             if isinstance(path, list):
                 path = path[0] if path else None
             base_name = self._format_home_relative_abs_path(path) if path else vol.name
@@ -1767,11 +1759,7 @@ class MainGUI:
             active_str = base_name
             ov_id = (
                 viewer.view_state.display.overlay.image_id
-                if (
-                    viewer.view_state
-                    and hasattr(viewer.view_state, "display")
-                    and hasattr(viewer.view_state.display, "overlay")
-                )
+                if viewer.view_state
                 else None
             )
             if ov_id and ov_id in self.controller.volumes:
@@ -1789,7 +1777,7 @@ class MainGUI:
                 return
             dpg.set_viewport_title(self.get_window_title())
         except Exception:
-            pass
+            logger.debug("window title not set", exc_info=True)
 
     def on_window_resize(self):
         try:
@@ -1849,8 +1837,8 @@ class MainGUI:
                         dpg.set_item_pos("nav_bot_group", [4, l_h - bot_h])
 
                 # --- THE COMPUTED LAYOUT ENGINE ---
-                hide_av = getattr(self, "_hide_av_panel", False)
-                folded = getattr(self, "folded_panels", set())
+                hide_av = self._hide_av_panel
+                folded = self.folded_panels
                 ch_h = FOLDED_PANEL_H if "ch" in folded else cfg["panel_ch_h"]
                 av_h = FOLDED_PANEL_H if "av" in folded else cfg["panel_av_h"]
                 gap = cfg.get("sidebar_gap", 5)
@@ -1920,7 +1908,7 @@ class MainGUI:
                 dpg.set_item_width("viewers_container", avail_w)
                 dpg.set_item_height("viewers_container", avail_h)
 
-            layout = getattr(self, "active_layout", "4")
+            layout = self.active_layout
             visible_viewers = getattr(self, "visible_viewers", ["V1", "V2", "V3", "V4"])
 
             for tag in ["V1", "V2", "V3", "V4"]:
@@ -2275,7 +2263,7 @@ class MainGUI:
         ):
             setattr(vs.camera, f"show_{user_data}", value)
         elif user_data == "filename":
-            current = getattr(vs.camera, "show_filename", 0)
+            current = vs.camera.show_filename
             vs.camera.show_filename = (current + 1) % 3
             dpg.set_value(sender, False)
         elif user_data == "interpolation":
@@ -2469,10 +2457,10 @@ class MainGUI:
         if self.current_workspace_path:
             path = self.current_workspace_path
             name = os.path.basename(path)
-            n_images = len(getattr(self.controller, "volumes", {}))
+            n_images = len(self.controller.volumes)
             n_rois = sum(
-                len(getattr(vs, "rois", []))
-                for vs in getattr(self.controller, "view_states", {}).values()
+                len(vs.rois)
+                for vs in self.controller.view_states.values()
             )
             parts = []
             if n_images:
@@ -2544,7 +2532,7 @@ class MainGUI:
 
     def _refresh_all_ui_panels(self):
         """Consolidated handler to rebuild all dynamic side panels."""
-        if getattr(self.controller, "ui_needs_layout_rebuild", False):
+        if self.controller.ui_needs_layout_rebuild:
             from vvv.ui.ui_theme import build_ui_config
 
             self.ui_cfg = build_ui_config(self.controller)
@@ -2676,7 +2664,7 @@ class MainGUI:
             len(self.tasks) > 0
             or len(self._main_thread_callbacks) > 0
             or len(self.controller._main_commits) > 0
-            or getattr(self.controller, "ui_needs_refresh", False)
+            or self.controller.ui_needs_refresh
         )
 
         # Get mouse position and viewport boundaries
@@ -2733,7 +2721,7 @@ class MainGUI:
             "auto_save_history", True
         )
 
-        if auto_save and hasattr(self.controller, "history"):
+        if auto_save:
             for vs_id in list(self.controller.view_states.keys()):
                 try:
                     self.controller.history.save_image_state(
