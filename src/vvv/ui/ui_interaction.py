@@ -12,18 +12,19 @@ from vvv.ui.drawing import world_to_screen_pos
 import dearpygui.dearpygui as dpg
 from vvv.ui.ui_components import REGISTERED_INPUT_FILTER_TAGS
 
+# Keys forced up: a key whose release vvv never gets (a native file dialog, an
+# app switch with Cmd+Tab) stays down for ImGui; it is read as up until it is
+# pressed again (on_key_press)
 _overridden_keys = {}
-_original_is_key_down = dpg.is_key_down
 
 
-def custom_is_key_down(key):
+def key_down(key):
+    """dpg.is_key_down, except for the keys forced up. vvv reads the keyboard
+    here only: the modifiers once a frame (InteractionManager.modifiers, also
+    PluginAPI.get_modifiers)."""
     if key in _overridden_keys:
         return _overridden_keys[key]
-    return _original_is_key_down(key)
-
-
-# pyrefly: ignore [bad-assignment]
-dpg.is_key_down = custom_is_key_down
+    return dpg.is_key_down(key)
 
 
 # ImGui's key codes (ImGuiKey_NamedKey_BEGIN = 512, below the 4096 modifier
@@ -31,14 +32,6 @@ dpg.is_key_down = custom_is_key_down
 # crashed CI runs on Windows). A few DPG names keep old GLFW codes, below 512
 # (mvKey_LWin 343, mvKey_Prior 266, ...): they are not keys for is_key_down.
 IMGUI_KEY_MIN, IMGUI_KEY_MAX = 512, 4095
-_ALL_KEYS = sorted(
-    {
-        v
-        for n, v in vars(dpg).items()
-        if n.startswith("mvKey_") and isinstance(v, int) and IMGUI_KEY_MIN <= v <= IMGUI_KEY_MAX
-    }
-)
-
 
 # Left / Right Super (Cmd on macOS, Win on Windows) in ImGui's key codes: DPG
 # has no name for them, and its mvKey_LWin / mvKey_RWin (343 / 347) are GLFW
@@ -46,15 +39,26 @@ _ALL_KEYS = sorted(
 KEY_LSUPER = dpg.mvKey_LControl + 3  # ImGuiKey_LeftSuper (530)
 KEY_RSUPER = dpg.mvKey_RControl + 3  # ImGuiKey_RightSuper (534)
 
+# Every key code, for clear_modifier_overrides: the named ones and the Super
+# keys (unnamed: a Cmd stuck after a native file dialog must be cleared too)
+_ALL_KEYS = sorted(
+    {
+        v
+        for n, v in vars(dpg).items()
+        if n.startswith("mvKey_") and isinstance(v, int) and IMGUI_KEY_MIN <= v <= IMGUI_KEY_MAX
+    }
+    | {KEY_LSUPER, KEY_RSUPER}
+)
+
 
 def is_super_down():
-    return dpg.is_key_down(KEY_LSUPER) or dpg.is_key_down(KEY_RSUPER)
+    return key_down(KEY_LSUPER) or key_down(KEY_RSUPER)
 
 
 def clear_modifier_overrides():
     for k in _ALL_KEYS:
         try:
-            if _original_is_key_down(k):
+            if dpg.is_key_down(k):
                 _overridden_keys[k] = False
         except Exception:
             pass
@@ -63,7 +67,7 @@ def clear_modifier_overrides():
 def clear_pan_modifier_overrides():
     for k in [KEY_LSUPER, KEY_RSUPER, dpg.mvKey_LControl, dpg.mvKey_RControl]:
         try:
-            if _original_is_key_down(k):
+            if dpg.is_key_down(k):
                 _overridden_keys[k] = False
         except Exception:
             pass
@@ -1138,12 +1142,8 @@ class InteractionManager:
         hover_viewer = self.get_hovered_viewer()
 
         # 0. Update Modifiers (Safe on Main Thread)
-        self.modifiers["shift"] = dpg.is_key_down(dpg.mvKey_LShift) or dpg.is_key_down(
-            dpg.mvKey_RShift
-        )
-        self.modifiers["ctrl"] = dpg.is_key_down(dpg.mvKey_LControl) or dpg.is_key_down(
-            dpg.mvKey_RControl
-        )
+        self.modifiers["shift"] = key_down(dpg.mvKey_LShift) or key_down(dpg.mvKey_RShift)
+        self.modifiers["ctrl"] = key_down(dpg.mvKey_LControl) or key_down(dpg.mvKey_RControl)
 
         self.modifiers["cmd"] = is_super_down()
 

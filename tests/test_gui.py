@@ -400,10 +400,13 @@ def test_gui_interaction_modifiers(headless_gui_app, monkeypatch):
     initial_zoom = vs.camera.zoom[viewer.orientation]
     initial_slice = vs.camera.slices[viewer.orientation]
 
-    # 1. Mock the Ctrl key being pressed globally
+    gui.interaction.update_trackers()  # the startup frame (clears the keys down at start)
+
+    # 1. Ctrl pressed: down for ImGui, and a key press event
     monkeypatch.setattr(
         dpg, "is_key_down", lambda key: key in [dpg.mvKey_LControl, dpg.mvKey_RControl]
     )
+    gui.interaction.on_key_press(None, dpg.mvKey_LControl, None)
 
     # Mock mouse position so the zoom focal point math doesn't crash
     monkeypatch.setattr(dpg, "get_drawing_mouse_pos", lambda: [250, 250])
@@ -1735,7 +1738,7 @@ def test_clear_modifier_overrides_probes_only_real_keys(monkeypatch):
     assert not is_imgui_key(dpg.mvKey_LWin) and is_imgui_key(dpg.mvKey_LControl)
     for clear in (ui_interaction.clear_modifier_overrides, ui_interaction.clear_pan_modifier_overrides):
         probed = []
-        monkeypatch.setattr(ui_interaction, "_original_is_key_down", lambda k: probed.append(k) or False)
+        monkeypatch.setattr(dpg, "is_key_down", lambda k: probed.append(k) or False)
         clear()
         assert probed and all(is_imgui_key(k) for k in probed), clear.__name__
 

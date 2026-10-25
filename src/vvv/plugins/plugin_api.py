@@ -109,6 +109,11 @@ class PluginAPI:
             return viewer.view_state.camera.crosshair_phys_coord
         return [0.0, 0.0, 0.0]
 
+    def get_modifiers(self) -> dict:
+        """The modifier keys of this frame: {"shift", "ctrl", "cmd"} -> bool
+        ("cmd": Cmd on macOS, Win on Windows). Stuck keys are already cleared."""
+        return dict(self._gui.interaction.modifiers)
+
     def get_mouse_position(self):
         if hasattr(self._gui.interaction, "last_mouse_pos"):
             return self._gui.interaction.last_mouse_pos

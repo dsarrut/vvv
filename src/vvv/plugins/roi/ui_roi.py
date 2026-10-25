@@ -4,7 +4,6 @@ import dearpygui.dearpygui as dpg
 from vvv.plugins.plugin_api import PluginAPI, PluginTagMixin
 from vvv.plugins.roi.control_roi import CREATED_SOURCE, roi_source
 from vvv.core.background_job import start_must_finish
-from vvv.ui.ui_interaction import is_super_down
 from vvv.ui.ui_components import (
     FIELD_RIGHT_MARGIN,
     ICON_EXPORT,
@@ -1226,12 +1225,8 @@ class RoiPluginUI(PluginTagMixin):
         if not roi_id:
             return
 
-        is_shift = dpg.is_key_down(dpg.mvKey_LShift) or dpg.is_key_down(dpg.mvKey_RShift)
-        is_ctrl = (
-            dpg.is_key_down(dpg.mvKey_LControl)
-            or dpg.is_key_down(dpg.mvKey_RControl)
-            or is_super_down()
-        )
+        mods = self.api.get_modifiers()
+        is_shift, is_ctrl = mods["shift"], mods["ctrl"] or mods["cmd"]
 
         visible_ids = list(self.roi_selectables.keys())
         self._c.on_roi_selected(roi_id, ctrl=is_ctrl, shift=is_shift, visible_ids=visible_ids)
