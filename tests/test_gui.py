@@ -400,10 +400,13 @@ def test_gui_interaction_modifiers(headless_gui_app, monkeypatch):
     initial_zoom = vs.camera.zoom[viewer.orientation]
     initial_slice = vs.camera.slices[viewer.orientation]
 
-    # 1. Mock the Ctrl key being pressed globally
+    gui.interaction.update_trackers()  # the startup frame (clears the keys down at start)
+
+    # 1. Ctrl pressed: down for ImGui, and a key press event
     monkeypatch.setattr(
         dpg, "is_key_down", lambda key: key in [dpg.mvKey_LControl, dpg.mvKey_RControl]
     )
+    gui.interaction.on_key_press(None, dpg.mvKey_LControl, None)
 
     # Mock mouse position so the zoom focal point math doesn't crash
     monkeypatch.setattr(dpg, "get_drawing_mouse_pos", lambda: [250, 250])
@@ -1735,7 +1738,7 @@ def test_clear_modifier_overrides_probes_only_real_keys(monkeypatch):
     assert not is_imgui_key(dpg.mvKey_LWin) and is_imgui_key(dpg.mvKey_LControl)
     for clear in (ui_interaction.clear_modifier_overrides, ui_interaction.clear_pan_modifier_overrides):
         probed = []
-        monkeypatch.setattr(ui_interaction, "_original_is_key_down", lambda k: probed.append(k) or False)
+        monkeypatch.setattr(dpg, "is_key_down", lambda k: probed.append(k) or False)
         clear()
         assert probed and all(is_imgui_key(k) for k in probed), clear.__name__
 
@@ -1796,3 +1799,60 @@ def test_plugin_buttons_show_their_shortcut(headless_gui_app):
     assert shown["add_profile"] == f"Add a profile on the active slice ({keys['add_profile']})"
     assert shown["add_landmark"] == f"Add a landmark at the crosshair ({keys['add_landmark']})"
     assert shown["toggle_mip"].endswith(f"({keys['toggle_mip']})")
+
+
+def test_workspace_load_and_save_errors(headless_gui_app, tmp_path, monkeypatch):
+    """S2: a broken workspace (not JSON, wrong content) ends in one clear
+    dialog, not a raw error, and the current workspace (the Save / Reload
+    target) is kept: Save must not write over the broken file. An image
+    without a path is reported; a save that fails is a dialog too."""
+    import json
+    import os
+
+    controller, gui, viewer, base_id = headless_gui_app
+    messages = []
+    monkeypatch.setattr(gui, "show_message", lambda title, msg: messages.append((title, msg)))
+
+    def run(path):
+        for _ in gui.load_workspace_sequence(str(path)):
+            pass
+
+    good = tmp_path / "good.vvw"
+    controller.file.save_workspace(str(good), gui.workspace_view())
+    run(good)
+    assert gui.current_workspace_path == str(good) and not messages
+
+    not_json = tmp_path / "not_json.vvw"
+    not_json.write_text('{"images": {')
+    wrong = tmp_path / "wrong.vvw"
+    wrong.write_text('{"images": [1, 2], "viewers": 5}')
+    for bad, why in ((not_json, "not a valid JSON file"), (wrong, '"images" is not a mapping')):
+        messages.clear()
+        run(bad)
+        assert len(messages) == 1 and messages[0][0] == "Error"
+        assert bad.name in messages[0][1] and why in messages[0][1]
+        assert gui.current_workspace_path == str(good)  # kept
+
+    ws = json.loads(good.read_text())
+    next(iter(ws["images"].values())).pop("path")
+    no_path = tmp_path / "no_path.vvw"
+    no_path.write_text(json.dumps(ws))
+    messages.clear()
+    run(no_path)
+    assert any("no file path in the workspace" in m for _, m in messages)
+
+    import sys
+
+    if sys.platform == "win32" or os.geteuid() == 0:
+        return  # chmod does not block writes there (Windows ACLs, root)
+    locked = tmp_path / "locked"
+    locked.mkdir()
+    os.chmod(locked, 0o500)  # no write access
+    try:
+        messages.clear()
+        before = gui.current_workspace_path
+        assert gui._save_workspace_to(str(locked / "ws.vvw")) is False
+        assert messages and messages[0][0] == "Error" and "not saved" in messages[0][1]
+        assert gui.current_workspace_path == before
+    finally:
+        os.chmod(locked, 0o700)

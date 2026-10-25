@@ -3,7 +3,7 @@ import logging
 import dearpygui.dearpygui as dpg
 from vvv.plugins.plugin_api import PluginAPI, PluginTagMixin
 from vvv.plugins.roi.control_roi import CREATED_SOURCE, roi_source
-from vvv.ui.ui_interaction import is_super_down
+from vvv.core.background_job import start_must_finish
 from vvv.ui.ui_components import (
     FIELD_RIGHT_MARGIN,
     ICON_EXPORT,
@@ -66,7 +66,7 @@ def source_tooltip(roi, vol) -> str:
         return "Created in vvv (no file)"
     text = f"From: {os.path.basename(key)}"
     side = ""
-    if getattr(roi, "source_type", None) == "Label Map":
+    if roi.source_type == "Label Map":
         try:
             text += f" (label {int(roi.source_val)})"
         except (TypeError, ValueError):
@@ -549,7 +549,7 @@ class RoiPluginUI(PluginTagMixin):
                 roi.is_contour,
                 bool(getattr(volumes.get(r_id), "_is_outdated", False)),
                 roi_source(roi, volumes.get(r_id)),
-                getattr(roi, "source_type", None),
+                roi.source_type,
             )
             for r_id, roi in rois.items()
         )
@@ -876,7 +876,7 @@ class RoiPluginUI(PluginTagMixin):
                     api=self.api,
                 )
 
-                source_type = getattr(roi, "source_type", "Binary")
+                source_type = roi.source_type
 
                 if is_outdated:
                     btn_action = build_icon_button(
@@ -986,10 +986,10 @@ class RoiPluginUI(PluginTagMixin):
         detail_state_key = (
             self._c.active_roi_id,
             num_selected,
-            getattr(roi_state, "opacity", 0.5),
-            getattr(roi_state, "thickness", 1.0),
-            getattr(roi_state, "is_contour", False),
-            tuple(getattr(roi_state, "color", [255, 0, 0])[:3]),
+            roi_state.opacity,
+            roi_state.thickness,
+            roi_state.is_contour,
+            tuple(roi_state.color[:3]),
         )
 
         if detail_state_key == self._last_detail_state_key:
@@ -1011,11 +1011,11 @@ class RoiPluginUI(PluginTagMixin):
         with dpg.group(parent=container):
             # Opacity/Thickness
             with dpg.group(horizontal=True):
-                if getattr(roi_state, "is_contour", False):
+                if roi_state.is_contour:
                     dpg.add_text("Thickness:")
                     active_slider_tag = self._t("slider_roi_thickness")
                     dpg.add_slider_float(
-                        default_value=getattr(roi_state, "thickness", 1.0),
+                        default_value=roi_state.thickness,
                         min_value=0.5,
                         max_value=10.0,
                         width=-1,
@@ -1027,7 +1027,7 @@ class RoiPluginUI(PluginTagMixin):
                     dpg.add_text("Opacity:")
                     active_slider_tag = self._t("slider_roi_opacity")
                     dpg.add_slider_float(
-                        default_value=getattr(roi_state, "opacity", 0.5),
+                        default_value=roi_state.opacity,
                         min_value=0.0,
                         max_value=1.0,
                         width=-1,
@@ -1042,8 +1042,8 @@ class RoiPluginUI(PluginTagMixin):
                 dpg.delete_item(theme_tag)
             with dpg.theme(tag=theme_tag):
                 with dpg.theme_component(dpg.mvSliderFloat):
-                    r, g, b = getattr(roi_state, "color", [255, 0, 0])
-                    r, g, b = getattr(roi_state, "color", [255, 0, 0])[:3]
+                    r, g, b = roi_state.color
+                    r, g, b = roi_state.color[:3]
                     dpg.add_theme_color(dpg.mvThemeCol_SliderGrab, [r, g, b, 255])
                     dpg.add_theme_color(
                         dpg.mvThemeCol_SliderGrabActive,
@@ -1225,12 +1225,8 @@ class RoiPluginUI(PluginTagMixin):
         if not roi_id:
             return
 
-        is_shift = dpg.is_key_down(dpg.mvKey_LShift) or dpg.is_key_down(dpg.mvKey_RShift)
-        is_ctrl = (
-            dpg.is_key_down(dpg.mvKey_LControl)
-            or dpg.is_key_down(dpg.mvKey_RControl)
-            or is_super_down()
-        )
+        mods = self.api.get_modifiers()
+        is_shift, is_ctrl = mods["shift"], mods["ctrl"] or mods["cmd"]
 
         visible_ids = list(self.roi_selectables.keys())
         self._c.on_roi_selected(roi_id, ctrl=is_ctrl, shift=is_shift, visible_ids=visible_ids)
@@ -1889,9 +1885,7 @@ class RoiPluginUI(PluginTagMixin):
 
             self.api.run_on_main_thread(_on_done)
 
-        import threading
-
-        threading.Thread(target=_save, daemon=True).start()
+        start_must_finish(_save, name="save_rois")  # the shutdown waits for it
 
 
     def on_roi_stats_radius_x_slider_changed(self, sender, app_data, user_data):
@@ -1908,7 +1902,6 @@ class RoiPluginUI(PluginTagMixin):
         new_r_mm = max(new_r_mm, 0.5)
 
         roi_state.spheroid_radius_x = new_r_mm
-        roi_state.spheroid_radius_xy = new_r_mm
         roi_state.spheroid_radius = new_r_mm
         self._c.update_spheroid_mask(
             base_vol,
@@ -1945,9 +1938,8 @@ class RoiPluginUI(PluginTagMixin):
 
         direction = user_data["dir"]
         current_r = (
-            getattr(roi_state, "spheroid_radius_x", None)
-            or getattr(roi_state, "spheroid_radius_xy", None)
-            or getattr(roi_state, "spheroid_radius", 10.0)
+            roi_state.spheroid_radius_x
+            or roi_state.spheroid_radius
         )
 
         step_size = 1.0
@@ -2007,9 +1999,8 @@ class RoiPluginUI(PluginTagMixin):
 
         direction = user_data["dir"]
         current_r = (
-            getattr(roi_state, "spheroid_radius_y", None)
-            or getattr(roi_state, "spheroid_radius_xy", None)
-            or getattr(roi_state, "spheroid_radius", 10.0)
+            roi_state.spheroid_radius_y
+            or roi_state.spheroid_radius
         )
 
         step_size = 1.0
@@ -2039,12 +2030,10 @@ class RoiPluginUI(PluginTagMixin):
             base_vol,
             roi_vol,
             roi_state,
-            new_r_x_mm=getattr(roi_state, "spheroid_radius_x", None)
-            or getattr(roi_state, "spheroid_radius_xy", None)
-            or getattr(roi_state, "spheroid_radius", 10.0),
-            new_r_y_mm=getattr(roi_state, "spheroid_radius_y", None)
-            or getattr(roi_state, "spheroid_radius_xy", None)
-            or getattr(roi_state, "spheroid_radius", 10.0),
+            new_r_x_mm=roi_state.spheroid_radius_x
+            or roi_state.spheroid_radius,
+            new_r_y_mm=roi_state.spheroid_radius_y
+            or roi_state.spheroid_radius,
             new_r_z_mm=new_r_z_mm,
         )
 
@@ -2072,9 +2061,7 @@ class RoiPluginUI(PluginTagMixin):
             return
 
         direction = user_data["dir"]
-        current_r = getattr(roi_state, "spheroid_radius_z", None) or getattr(
-            roi_state, "spheroid_radius", 10.0
-        )
+        current_r = roi_state.spheroid_radius_z or roi_state.spheroid_radius
 
         # Step size is 1.0 mm by default
         step_size = 1.0
@@ -2110,14 +2097,12 @@ class RoiPluginUI(PluginTagMixin):
             base_vol,
             roi_vol,
             roi_state,
-            new_r_x_mm=getattr(roi_state, "spheroid_radius_x", None)
-            or getattr(roi_state, "spheroid_radius_xy", None)
-            or getattr(roi_state, "spheroid_radius", 10.0),
-            new_r_y_mm=getattr(roi_state, "spheroid_radius_y", None)
-            or getattr(roi_state, "spheroid_radius_xy", None)
-            or getattr(roi_state, "spheroid_radius", 10.0),
-            new_r_z_mm=getattr(roi_state, "spheroid_radius_z", None)
-            or getattr(roi_state, "spheroid_radius", 10.0),
+            new_r_x_mm=roi_state.spheroid_radius_x
+            or roi_state.spheroid_radius,
+            new_r_y_mm=roi_state.spheroid_radius_y
+            or roi_state.spheroid_radius,
+            new_r_z_mm=roi_state.spheroid_radius_z
+            or roi_state.spheroid_radius,
         )
 
         roi_state.invalidate()
@@ -2126,10 +2111,10 @@ class RoiPluginUI(PluginTagMixin):
         viewer.view_state.is_data_dirty = True
 
         # Sync crosshair and slice
-        if hasattr(viewer.view_state, "update_crosshair_from_phys"):
-            import numpy as np
-            viewer.view_state.update_crosshair_from_phys(np.array(roi_state.spheroid_center))
-            self.api.propagate_sync(viewer.image_id)
+        import numpy as np
+
+        viewer.view_state.update_crosshair_from_phys(np.array(roi_state.spheroid_center))
+        self.api.propagate_sync(viewer.image_id)
 
         self.api.request_refresh()
         self.api.update_all_viewers_of_image(viewer.image_id, data_dirty=True)
@@ -2223,9 +2208,9 @@ class RoiPluginUI(PluginTagMixin):
 
         stats = self._c.compute_detailed_roi_stats(viewer.image_id, roi_id)
         has_overlay = bool(stats and stats.get("overlay_stats"))
-        is_created = getattr(roi, "source_type", None) == "Created"
-        is_spheroid = getattr(roi, "is_spheroid", False)
-        is_box = getattr(roi, "is_box", False)
+        is_created = roi.source_type == "Created"
+        is_spheroid = roi.is_spheroid
+        is_box = roi.is_box
         if is_spheroid or is_box:
             win_h = 760 if has_overlay else 650
         elif is_created:
@@ -2369,7 +2354,7 @@ class RoiPluginUI(PluginTagMixin):
             # Save / Reload
             roi_vol = self.api.get_volumes().get(roi_id)
             is_outdated = roi_vol._is_outdated if roi_vol else False
-            source_type = getattr(roi, "source_type", "Binary")
+            source_type = roi.source_type
             btn_action_tag = self._t(f"stats_btn_action_{roi_id}")
             if is_outdated:
                 btn_action = build_icon_button(
@@ -2401,7 +2386,7 @@ class RoiPluginUI(PluginTagMixin):
             slider_tag = self._t(f"stats_slider_opacity_thickness_{roi_id}")
             if roi.is_contour:
                 slider = dpg.add_slider_float(
-                    default_value=getattr(roi, "thickness", 1.0),
+                    default_value=roi.thickness,
                     min_value=0.5,
                     max_value=10.0,
                     width=90,
@@ -2414,7 +2399,7 @@ class RoiPluginUI(PluginTagMixin):
                     build_beginner_tooltip(slider, "Adjust contour thickness", self.api)
             else:
                 slider = dpg.add_slider_float(
-                    default_value=getattr(roi, "opacity", 0.5),
+                    default_value=roi.opacity,
                     min_value=0.0,
                     max_value=1.0,
                     width=90,
@@ -2451,7 +2436,7 @@ class RoiPluginUI(PluginTagMixin):
         with dpg.group(
             tag=spheroid_group_tag,
             parent=parent_tag,
-            show=getattr(roi, "is_spheroid", False),
+            show=roi.is_spheroid,
         ):
             dpg.add_spacer(height=5)
             dpg.add_text("Spheroid Parameters", color=header_col)
@@ -2467,9 +2452,8 @@ class RoiPluginUI(PluginTagMixin):
                     step_callback=self.on_roi_stats_radius_x_step_callback,
                     min_val=0.5,
                     max_val=150.0,
-                    default_val=getattr(roi, "spheroid_radius_x", None)
-                    or getattr(roi, "spheroid_radius_xy", None)
-                    or getattr(roi, "spheroid_radius", None)
+                    default_val=roi.spheroid_radius_x
+                    or roi.spheroid_radius
                     or 10.0,
                     format="%.1f",
                     gui=self.api,
@@ -2487,9 +2471,8 @@ class RoiPluginUI(PluginTagMixin):
                     step_callback=self.on_roi_stats_radius_y_step_callback,
                     min_val=0.5,
                     max_val=150.0,
-                    default_val=getattr(roi, "spheroid_radius_y", None)
-                    or getattr(roi, "spheroid_radius_xy", None)
-                    or getattr(roi, "spheroid_radius", None)
+                    default_val=roi.spheroid_radius_y
+                    or roi.spheroid_radius
                     or 10.0,
                     format="%.1f",
                     gui=self.api,
@@ -2507,8 +2490,8 @@ class RoiPluginUI(PluginTagMixin):
                     step_callback=self.on_roi_stats_radius_z_step_callback,
                     min_val=0.5,
                     max_val=150.0,
-                    default_val=getattr(roi, "spheroid_radius_z", None)
-                    or getattr(roi, "spheroid_radius", None)
+                    default_val=roi.spheroid_radius_z
+                    or roi.spheroid_radius
                     or 10.0,
                     format="%.1f",
                     gui=self.api,
@@ -2529,7 +2512,7 @@ class RoiPluginUI(PluginTagMixin):
             dpg.bind_item_handler_registry(slider_z_tag, handler_reg)
 
             # Center Inputs
-            center = getattr(roi, "spheroid_center", None) or [0.0, 0.0, 0.0]
+            center = roi.spheroid_center or [0.0, 0.0, 0.0]
             with dpg.group(horizontal=True):
                 dpg.add_text("Center X:", color=dim_col)
                 dpg.add_input_float(
@@ -2568,7 +2551,7 @@ class RoiPluginUI(PluginTagMixin):
         # Box Parameters group
         box_group_tag = self._t(f"stats_group_box_{roi_id}")
         with dpg.group(
-            tag=box_group_tag, parent=parent_tag, show=getattr(roi, "is_box", False)
+            tag=box_group_tag, parent=parent_tag, show=roi.is_box
         ):
             dpg.add_spacer(height=5)
             dpg.add_text("Box Parameters", color=header_col)
@@ -2584,7 +2567,7 @@ class RoiPluginUI(PluginTagMixin):
                     step_callback=self.on_roi_stats_box_size_x_step_callback,
                     min_val=1.0,
                     max_val=300.0,
-                    default_val=getattr(roi, "box_size_x", None) or 20.0,
+                    default_val=roi.box_size_x or 20.0,
                     format="%.1f",
                     gui=self.api,
                     user_data=roi_id,
@@ -2601,7 +2584,7 @@ class RoiPluginUI(PluginTagMixin):
                     step_callback=self.on_roi_stats_box_size_y_step_callback,
                     min_val=1.0,
                     max_val=300.0,
-                    default_val=getattr(roi, "box_size_y", None) or 20.0,
+                    default_val=roi.box_size_y or 20.0,
                     format="%.1f",
                     gui=self.api,
                     user_data=roi_id,
@@ -2618,7 +2601,7 @@ class RoiPluginUI(PluginTagMixin):
                     step_callback=self.on_roi_stats_box_size_z_step_callback,
                     min_val=1.0,
                     max_val=300.0,
-                    default_val=getattr(roi, "box_size_z", None) or 20.0,
+                    default_val=roi.box_size_z or 20.0,
                     format="%.1f",
                     gui=self.api,
                     user_data=roi_id,
@@ -2633,7 +2616,7 @@ class RoiPluginUI(PluginTagMixin):
                 dpg.bind_item_handler_registry(slider_box_z_tag, handler_reg)
 
             # Center Inputs
-            center = getattr(roi, "box_center", None) or [0.0, 0.0, 0.0]
+            center = roi.box_center or [0.0, 0.0, 0.0]
             with dpg.group(horizontal=True):
                 dpg.add_text("Center X:", color=dim_col)
                 dpg.add_input_float(
@@ -2675,7 +2658,7 @@ class RoiPluginUI(PluginTagMixin):
         dpg.add_separator(parent=parent_tag)
 
         file_row_tag = self._t(f"stats_row_file_{roi_id}")
-        is_created = getattr(roi, "source_type", None) == "Created"
+        is_created = roi.source_type == "Created"
         with dpg.group(
             horizontal=True, parent=parent_tag, tag=file_row_tag, show=not is_created
         ):
@@ -2690,9 +2673,9 @@ class RoiPluginUI(PluginTagMixin):
         with dpg.group(horizontal=True, parent=parent_tag):
             dpg.add_text("Type:", color=dim_col)
             if is_created:
-                if getattr(roi, "is_spheroid", False):
+                if roi.is_spheroid:
                     t_str = "Sphere"
-                elif getattr(roi, "is_box", False):
+                elif roi.is_box:
                     t_str = "Box"
                 else:
                     t_str = "Created"
@@ -2939,7 +2922,7 @@ class RoiPluginUI(PluginTagMixin):
                 )
 
         # Update file / type row
-        is_created = getattr(roi, "source_type", None) == "Created"
+        is_created = roi.source_type == "Created"
         file_row = self._t(f"stats_row_file_{roi_id}")
         if dpg.does_item_exist(file_row):
             dpg.configure_item(file_row, show=not is_created)
@@ -2950,39 +2933,35 @@ class RoiPluginUI(PluginTagMixin):
                 )
 
             if is_created:
-                if getattr(roi, "is_spheroid", False):
+                if roi.is_spheroid:
                     t_str = "Sphere"
-                elif getattr(roi, "is_box", False):
+                elif roi.is_box:
                     t_str = "Box"
                 else:
                     t_str = "Created"
             else:
-                t_str = stats.get("source_type", "Unknown") if stats else getattr(roi, "source_type", "Unknown")
+                t_str = stats.get("source_type", "Unknown") if stats else roi.source_type
             dpg.set_value(self._t(f"stats_txt_type_{roi_id}"), t_str)
 
         # Update spheroid inputs
         spheroid_group = self._t(f"stats_group_spheroid_{roi_id}")
         if dpg.does_item_exist(spheroid_group):
-            dpg.configure_item(spheroid_group, show=getattr(roi, "is_spheroid", False))
-            if getattr(roi, "is_spheroid", False):
+            dpg.configure_item(spheroid_group, show=roi.is_spheroid)
+            if roi.is_spheroid:
                 r_x = (
-                    getattr(roi, "spheroid_radius_x", None)
-                    or getattr(roi, "spheroid_radius_xy", None)
-                    or getattr(roi, "spheroid_radius", 10.0)
+                    roi.spheroid_radius_x
+                    or roi.spheroid_radius
                 )
                 r_y = (
-                    getattr(roi, "spheroid_radius_y", None)
-                    or getattr(roi, "spheroid_radius_xy", None)
-                    or getattr(roi, "spheroid_radius", 10.0)
+                    roi.spheroid_radius_y
+                    or roi.spheroid_radius
                 )
-                r_z = getattr(roi, "spheroid_radius_z", None) or getattr(
-                    roi, "spheroid_radius", 10.0
-                )
+                r_z = roi.spheroid_radius_z or roi.spheroid_radius
                 dpg.set_value(self._t(f"slider_roi_radius_x_{roi_id}"), r_x)
                 dpg.set_value(self._t(f"slider_roi_radius_y_{roi_id}"), r_y)
                 dpg.set_value(self._t(f"slider_roi_radius_z_{roi_id}"), r_z)
 
-                center = getattr(roi, "spheroid_center", [0.0, 0.0, 0.0])
+                center = roi.spheroid_center
                 dpg.set_value(self._t(f"input_roi_center_x_{roi_id}"), center[0])
                 dpg.set_value(self._t(f"input_roi_center_y_{roi_id}"), center[1])
                 dpg.set_value(self._t(f"input_roi_center_z_{roi_id}"), center[2])
@@ -2990,16 +2969,16 @@ class RoiPluginUI(PluginTagMixin):
         # Update box inputs
         box_group = self._t(f"stats_group_box_{roi_id}")
         if dpg.does_item_exist(box_group):
-            dpg.configure_item(box_group, show=getattr(roi, "is_box", False))
-            if getattr(roi, "is_box", False):
-                b_x = getattr(roi, "box_size_x", 20.0)
-                b_y = getattr(roi, "box_size_y", 20.0)
-                b_z = getattr(roi, "box_size_z", 20.0)
+            dpg.configure_item(box_group, show=roi.is_box)
+            if roi.is_box:
+                b_x = roi.box_size_x
+                b_y = roi.box_size_y
+                b_z = roi.box_size_z
                 dpg.set_value(self._t(f"slider_roi_box_size_x_{roi_id}"), b_x)
                 dpg.set_value(self._t(f"slider_roi_box_size_y_{roi_id}"), b_y)
                 dpg.set_value(self._t(f"slider_roi_box_size_z_{roi_id}"), b_z)
 
-                center = getattr(roi, "box_center", [0.0, 0.0, 0.0])
+                center = roi.box_center
                 dpg.set_value(self._t(f"input_roi_box_center_x_{roi_id}"), center[0])
                 dpg.set_value(self._t(f"input_roi_box_center_y_{roi_id}"), center[1])
                 dpg.set_value(self._t(f"input_roi_box_center_z_{roi_id}"), center[2])
@@ -3010,29 +2989,29 @@ class RoiPluginUI(PluginTagMixin):
             if roi.is_contour:
                 dpg.configure_item(
                     slider_tag,
-                    default_value=getattr(roi, "thickness", 1.0),
+                    default_value=roi.thickness,
                     min_value=0.5,
                     max_value=10.0,
                     format="Thick: %.1f",
                     callback=self.on_roi_thickness_changed,
                 )
-                dpg.set_value(slider_tag, getattr(roi, "thickness", 1.0))
+                dpg.set_value(slider_tag, roi.thickness)
             else:
                 dpg.configure_item(
                     slider_tag,
-                    default_value=getattr(roi, "opacity", 0.5),
+                    default_value=roi.opacity,
                     min_value=0.0,
                     max_value=1.0,
                     format="Opac: %.2f",
                     callback=self.on_roi_opacity_changed,
                 )
-                dpg.set_value(slider_tag, getattr(roi, "opacity", 0.5))
+                dpg.set_value(slider_tag, roi.opacity)
 
         # Save/Reload action button
         btn_action_tag = self._t(f"stats_btn_action_{roi_id}")
         if dpg.does_item_exist(btn_action_tag):
             is_outdated = roi_vol._is_outdated if roi_vol else False
-            source_type = getattr(roi, "source_type", "Binary")
+            source_type = roi.source_type
             tooltip_tag = self._t(f"stats_tooltip_action_{roi_id}")
             if is_outdated:
                 dpg.configure_item(
@@ -3130,8 +3109,8 @@ class RoiPluginUI(PluginTagMixin):
         # Dynamic window height adjustment
         win_tag = self._t(f"stats_win_{roi_id}")
         if dpg.does_item_exist(win_tag):
-            is_spheroid = getattr(roi, "is_spheroid", False)
-            is_box = getattr(roi, "is_box", False)
+            is_spheroid = roi.is_spheroid
+            is_box = roi.is_box
             if is_spheroid or is_box:
                 win_h = 760 if ov_stats else 650
             elif is_created:
@@ -3562,7 +3541,7 @@ class RoiPluginUI(PluginTagMixin):
             return
 
         direction = user_data["dir"]
-        current_size = getattr(roi_state, "box_size_x", 20.0)
+        current_size = roi_state.box_size_x
 
         step_size = 1.0
         new_size = max(1.0, current_size + (step_size * direction))
@@ -3617,7 +3596,7 @@ class RoiPluginUI(PluginTagMixin):
             return
 
         direction = user_data["dir"]
-        current_size = getattr(roi_state, "box_size_y", 20.0)
+        current_size = roi_state.box_size_y
 
         step_size = 1.0
         new_size = max(1.0, current_size + (step_size * direction))
@@ -3672,7 +3651,7 @@ class RoiPluginUI(PluginTagMixin):
             return
 
         direction = user_data["dir"]
-        current_size = getattr(roi_state, "box_size_z", 20.0)
+        current_size = roi_state.box_size_z
 
         step_size = 1.0
         new_size = max(1.0, current_size + (step_size * direction))
@@ -3711,10 +3690,10 @@ class RoiPluginUI(PluginTagMixin):
         viewer.view_state.is_data_dirty = True
 
         # Sync crosshair and slice
-        if hasattr(viewer.view_state, "update_crosshair_from_phys"):
-            import numpy as np
-            viewer.view_state.update_crosshair_from_phys(np.array(roi_state.box_center))
-            self.api.propagate_sync(viewer.image_id)
+        import numpy as np
+
+        viewer.view_state.update_crosshair_from_phys(np.array(roi_state.box_center))
+        self.api.propagate_sync(viewer.image_id)
 
         self.api.update_all_viewers_of_image(viewer.image_id, data_dirty=True)
         self.api.request_refresh()

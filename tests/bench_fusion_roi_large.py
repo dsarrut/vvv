@@ -27,6 +27,7 @@ import time
 import tempfile
 import numpy as np
 import SimpleITK as sitk
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 # 1. Mock DearPyGui to run completely headless
@@ -190,8 +191,12 @@ def main():
         print("Loading files into VVV Controller...")
         c = Controller()
         c.gui = MagicMock()
+        c.gui.get_plugin.return_value = None  # no plugins loaded
         c.gui.ui_cfg = {"layout": {"viewport_padding": 4}}
-        c.gui.interaction = None  # deterministic: no active ROI drag
+        # deterministic: no drag in progress (as NavigationTool when idle)
+        c.gui.interaction.active_tool = SimpleNamespace(
+            drag_viewer=None, roi_drag_id=None, roi_drag_action=None
+        )
 
         base_id = c.file.load_image(base_path)
         ov_id = c.file.load_image(ov_path)

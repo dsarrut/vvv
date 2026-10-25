@@ -414,3 +414,15 @@ def test_dvf_color_clamped_above_max_magnitude():
         state.vector_color_max_mag,
     )
     assert color == [255, 0, 0, 255]
+
+
+def test_dvf_is_applicable_before_bind():
+    """The nav buttons are themed before create_ui binds the plugins: an
+    unbound DVF plugin is not applicable (it raised AttributeError, which the
+    nav theme swallowed)."""
+    from unittest.mock import MagicMock
+
+    from vvv.plugins.dvf.plugin_dvf import DvfPlugin
+
+    plugin = DvfPlugin()
+    assert plugin.is_applicable(MagicMock()) is False

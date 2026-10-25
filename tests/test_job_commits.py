@@ -107,3 +107,29 @@ def test_save_image_async_callbacks_run_on_main_thread(tmp_path):
     assert not error_called
     assert c.volumes[base].path == save_path
 
+
+
+def test_shutdown_waits_for_must_finish_threads():
+    """A file save is a must-finish thread: the shutdown waits for it (a daemon
+    thread killed at exit left a truncated .nii.gz that still read without
+    error, mostly zeros)."""
+    import threading
+    import time
+
+    from vvv.core.background_job import start_must_finish, wait_for_must_finish
+
+    done = threading.Event()
+
+    def save():
+        time.sleep(0.3)
+        done.set()
+
+    start_must_finish(save, name="test_save")
+    assert wait_for_must_finish(timeout=5.0) == 0
+    assert done.is_set()
+
+    release = threading.Event()
+    start_must_finish(lambda: release.wait(5.0), name="test_stuck")
+    assert wait_for_must_finish(timeout=0.1) == 1  # reported, not waited forever
+    release.set()
+    assert wait_for_must_finish(timeout=5.0) == 0

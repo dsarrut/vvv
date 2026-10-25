@@ -1,9 +1,12 @@
+import logging
 import os
 import json
 from typing import Any
 import dearpygui.dearpygui as dpg
 from vvv.core.settings_manager import DEFAULT_SETTINGS
 from vvv.ui.ui_components import build_dialog_footer, build_icon_button
+
+logger = logging.getLogger(__name__)
 
 
 class SettingsWindow:
@@ -102,7 +105,7 @@ class SettingsWindow:
                 with open(path, "r") as f:
                     return json.load(f)
             except Exception:
-                pass
+                logger.debug("get_saved_dict: ignored error", exc_info=True)
         return {}
 
     def build_tree(self):

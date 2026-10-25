@@ -141,26 +141,8 @@ def _validate_and_reshape(
 
 
 def _safe_get_plugin(controller, plugin_id: str):
-    """Retrieve a plugin by ID from controller or its GUI."""
-    if not controller:
-        return None
-    get_plugin_func = getattr(controller, "get_plugin", None)
-    if callable(get_plugin_func):
-        try:
-            res = get_plugin_func(plugin_id)
-            if res is not None and getattr(res, "plugin_id", None) == plugin_id:
-                return res
-        except Exception:
-            pass
-
-    gui = getattr(controller, "gui", None)
-    if gui:
-        plugins = getattr(gui, "plugins", None)
-        if isinstance(plugins, list):
-            for p in plugins:
-                if getattr(p, "plugin_id", None) == plugin_id:
-                    return p
-    return None
+    """The plugin plugin_id, or None (no controller, no GUI, or not loaded)."""
+    return controller.get_plugin(plugin_id) if controller else None
 
 
 class ViewportMapper:
@@ -413,10 +395,13 @@ class SliceViewer:
         self.profile_mode = ProfileInteractionMode.IDLE
         self.active_profile_id = None
         self.active_handle = None  # "start" or "end"
+        self.hovered_profile_id = None
+        self.hovered_handle_key = None
 
         # ROI Tool Transient Interaction State
         self.roi_mode = RoiInteractionMode.IDLE
         self.hovered_roi_id = None
+        self.hovered_roi_part = None
 
         # Landmark Tool Transient Interaction State
         self.landmark_mode = LandmarkInteractionMode.IDLE
@@ -548,7 +533,7 @@ class SliceViewer:
         return (
             vs is not None
             and vs.base_display_data is not None
-            and not getattr(vs, "needs_resample", False)
+            and not vs.needs_resample
             and vs.space.has_rotation()
         )
 
@@ -593,7 +578,7 @@ class SliceViewer:
     @property
     def show_legend(self):
         vs = self.view_state
-        return getattr(vs.camera, "show_legend", 0) if vs else 0
+        return vs.camera.show_legend if vs else 0
 
     @show_legend.setter
     def show_legend(self, value):
@@ -809,7 +794,7 @@ class SliceViewer:
             if dpg.does_item_exist(node_tag):
                 dpg.configure_item(node_tag, show=False)
 
-        if hasattr(self, "overlay_image_tag") and dpg.does_item_exist(
+        if dpg.does_item_exist(
             self.overlay_image_tag
         ):
             dpg.configure_item(self.overlay_image_tag, show=False)
@@ -1302,7 +1287,7 @@ class SliceViewer:
             if not vs.display.overlay.image_id or vs.display.overlay_data is None:
                 return
             ov_vol = self.controller.volumes[vs.display.overlay.image_id]
-            is_ov_rgb = getattr(ov_vol, "is_rgb", False)
+            is_ov_rgb = ov_vol.is_rgb
             ov_time_idx = min(vs.camera.time_idx, ov_vol.num_timepoints - 1)
             slice_data = SliceRenderer.extract_slice(
                 vs.display.overlay_data,
@@ -1312,19 +1297,19 @@ class SliceViewer:
                 self.orientation,
             )
         else:
-            if getattr(vol, "is_rgb", False):
+            if vol.is_rgb:
                 return
 
             # Make sure Auto-Window reads from the transformed buffer too!
             display_data = (
                 vs.base_display_data
-                if getattr(vs, "base_display_data", None) is not None
+                if vs.base_display_data is not None
                 else vol.data
             )
 
             slice_data = SliceRenderer.get_raw_slice(
                 display_data,
-                getattr(vol, "is_rgb", False),
+                vol.is_rgb,
                 vs.camera.time_idx,
                 self.slice_idx,
                 self.orientation,
@@ -1381,7 +1366,7 @@ class SliceViewer:
         if (
             not vs
             or not vol
-            or getattr(vol, "is_rgb", False)
+            or vol.is_rgb
         ):
             return
         vs.display.ww = max(1e-20, ww)
@@ -1418,7 +1403,7 @@ class SliceViewer:
             return
 
         # Read state safely, defaulting to 0
-        show_state = getattr(self.view_state.camera, "show_filename", 0)
+        show_state = self.view_state.camera.show_filename
         if isinstance(show_state, bool):
             show_state = 1 if show_state else 0
 
@@ -1691,7 +1676,7 @@ class SliceViewer:
         if self.should_use_voxels_strips() and self.last_rgba_flat is not None:
             if dpg.does_item_exist(self.image_tag):
                 dpg.configure_item(self.image_tag, show=False)
-            if hasattr(self, "overlay_image_tag") and dpg.does_item_exist(
+            if dpg.does_item_exist(
                 self.overlay_image_tag
             ):
                 dpg.configure_item(self.overlay_image_tag, show=False)
@@ -1709,7 +1694,6 @@ class SliceViewer:
         op = int(vs.display.overlay.opacity * 255)
         has_overlay = (
             self.last_overlay_rgba_flat is not None
-            and hasattr(self, "overlay_image_tag")
             and dpg.does_item_exist(self.overlay_image_tag)
         )
 
@@ -1764,7 +1748,7 @@ class SliceViewer:
                     color=[255, 255, 255, op],
                     show=True,
                 )
-        elif hasattr(self, "overlay_image_tag") and dpg.does_item_exist(
+        elif dpg.does_item_exist(
             self.overlay_image_tag
         ):
             dpg.configure_item(self.overlay_image_tag, show=False)
@@ -1813,7 +1797,7 @@ class SliceViewer:
 
         if plugin_active and thr_plugin is not None:
             preview_2d = None
-            if vs._preview_R is not None and not getattr(vol, "is_dvf", False):
+            if vs._preview_R is not None and not vol.is_dvf:
                 key = (self.orientation, self.slice_idx)
                 preview_2d = self._preview_slices.get(key)
 
@@ -1822,7 +1806,7 @@ class SliceViewer:
             else:
                 display_data = (
                     vs.base_display_data
-                    if getattr(vs, "base_display_data", None) is not None
+                    if vs.base_display_data is not None
                     else vol.data
                 )
                 slice_data = SliceRenderer.get_raw_slice(
@@ -1844,7 +1828,7 @@ class SliceViewer:
             )
 
         dose_plugin = _safe_get_plugin(self.controller, "dose_plugin")
-        if dose_plugin and hasattr(dose_plugin, "_controller"):
+        if dose_plugin:
             dose_plugin._controller.update_isocontours(self)
 
         if not self.drawer._is_mip_active():
@@ -1877,9 +1861,8 @@ class SliceViewer:
             return
 
         is_dragging = False
-        if self.controller.gui and hasattr(self.controller.gui, "interaction"):
-            active_tool = self.controller.gui.interaction.active_tool
-            is_dragging = getattr(active_tool, "drag_viewer", None) == self
+        if self.controller.gui:
+            is_dragging = self.controller.gui.interaction.active_tool.drag_viewer == self
 
         try:
             mx, my = dpg.get_drawing_mouse_pos()
@@ -1983,7 +1966,7 @@ class SliceViewer:
                 )
 
             time_idx = vs.camera.time_idx
-            dvf_prec = vs.dvf.vector_precision if getattr(vol, "is_dvf", False) else 2
+            dvf_prec = vs.dvf.vector_precision if vol.is_dvf else 2
             text_lines = [format_pixel_value(val, vol, time_idx, dvf_prec)]
 
             if info["overlay_val"] is not None:
@@ -2012,7 +1995,7 @@ class SliceViewer:
 
                 if vol.num_timepoints > 1:
                     t_str = str(vs.camera.time_idx)
-                    if getattr(vol, "is_dvf", False):
+                    if vol.is_dvf:
                         t_str = (
                             ["dx", "dy", "dz"][vs.camera.time_idx]
                             if vs.camera.time_idx < 3
@@ -2176,7 +2159,7 @@ class SliceViewer:
                 self.controller.ui_needs_refresh = True
 
     def action_add_landmark(self):
-        if hasattr(self.controller, "gui") and self.controller.gui:
+        if self.controller.gui:
             lm_plugin = next(
                 (
                     p
@@ -2280,7 +2263,7 @@ class SliceViewer:
                 f"MIP: {'on' if state.mip_enabled else 'off'}"
             )
         except Exception:
-            pass
+            logger.debug("action_toggle_mip: ignored error", exc_info=True)
 
     def action_toggle_strips(self):
         vs = self.view_state
@@ -2333,7 +2316,7 @@ class SliceViewer:
     def action_toggle_legend(self):
         vs = self.view_state
         if vs:
-            current = getattr(vs.camera, "show_legend", 0)
+            current = vs.camera.show_legend
             if isinstance(current, bool):
                 current = 1 if current else 0
             new_val = (current + 1) % 3
@@ -2347,7 +2330,7 @@ class SliceViewer:
     def action_toggle_filename(self):
         vs = self.view_state
         if vs:
-            current = getattr(vs.camera, "show_filename", 0)
+            current = vs.camera.show_filename
             if isinstance(current, bool):
                 current = 1 if current else 0
             vs.camera.show_filename = (current + 1) % 3
@@ -2412,13 +2395,7 @@ class SliceViewer:
                 val = "Space"
 
             if isinstance(val, str):
-                key_attr = f"mvKey_{val}"
-                if val in ("Space", "Spacebar") and not hasattr(dpg, key_attr):
-                    key_attr = (
-                        "mvKey_Spacebar"
-                        if hasattr(dpg, "mvKey_Spacebar")
-                        else "mvKey_Space"
-                    )
+                key_attr = "mvKey_Spacebar" if val in ("Space", "Spacebar") else f"mvKey_{val}"
                 mapped_key = getattr(dpg, key_attr, val)
             else:
                 mapped_key = val
@@ -2428,7 +2405,7 @@ class SliceViewer:
                 return
 
         # Secret developer debugging bindings
-        if getattr(self.controller, "debug_mode", False):
+        if self.controller.debug_mode:
             if key == dpg.mvKey_J:
                 cfg = self.controller.settings.data.setdefault("rendering", {})
                 st = cfg.get("single_texture", "Auto")
@@ -2536,7 +2513,7 @@ class SliceViewer:
         if nt <= 1:
             return
 
-        if getattr(vol, "is_dvf", False) and vs.dvf.display_mode != "Component":
+        if vol.is_dvf and vs.dvf.display_mode != "Component":
             return
 
         # Loop the time index
@@ -2581,7 +2558,7 @@ class SliceViewer:
         total_dy = current_pos[1] - self.drag_start_mouse[1]
 
         # Use the locked drag mode snapshot
-        is_pan_drag = getattr(self, "is_pan_drag", False)
+        is_pan_drag = self.is_pan_drag
         is_button_left = dpg.is_mouse_button_down(dpg.mvMouseButton_Left)
         mods = self.controller.gui.interaction.modifiers
 
@@ -2698,7 +2675,7 @@ class LayerPackager:
         if not vs or not vol:
             return None
 
-        dvf_mode = vs.dvf.display_mode if getattr(vol, "is_dvf", False) else "Component"
+        dvf_mode = vs.dvf.display_mode if vol.is_dvf else "Component"
 
         preview = None
 
@@ -2712,12 +2689,12 @@ class LayerPackager:
             mip_plugin
             and mip_state
             and mip_state.mip_enabled
-            and not getattr(vol, "is_dvf", False)
+            and not vol.is_dvf
         ):
             # Compute MIP projection
             display_data_raw = (
                 vs.base_display_data
-                if getattr(vs, "base_display_data", None) is not None
+                if vs.base_display_data is not None
                 else vol.data
             )
             if display_data_raw is not None:
@@ -2767,7 +2744,7 @@ class LayerPackager:
                         (wl_upper - preview.astype(np.float32)).astype(preview.dtype)
                     )
         else:
-            if vs._preview_R is not None and not getattr(vol, "is_dvf", False):
+            if vs._preview_R is not None and not vol.is_dvf:
                 key = (v.orientation, v.slice_idx)
                 preview = v._preview_slices.get(key)
                 if preview is None:
@@ -2785,7 +2762,7 @@ class LayerPackager:
         else:
             display_data = (
                 vs.base_display_data
-                if getattr(vs, "base_display_data", None) is not None
+                if vs.base_display_data is not None
                 else vol.data
             )
 
@@ -2795,12 +2772,12 @@ class LayerPackager:
 
         colorwash = None
         dose_plugin = _safe_get_plugin(v.controller, "dose_plugin")
-        if dose_plugin and hasattr(dose_plugin, "_controller"):
+        if dose_plugin:
             colorwash = dose_plugin._controller.get_colorwash_bands(v.image_id, is_overlay=False)
 
         return RenderLayer(
             data=display_data,
-            is_rgb=getattr(vol, "is_rgb", False),
+            is_rgb=vol.is_rgb,
             num_components=vol.num_components,
             ww=vs.display.ww,
             wl=vs.display.wl,
@@ -2886,7 +2863,7 @@ class LayerPackager:
             mip_plugin
             and mip_state
             and mip_active
-            and not getattr(ovs.volume, "is_dvf", False)
+            and not ovs.volume.is_dvf
         ):
             ov_data_raw = vs.display.overlay_data
             if ov_data_raw is not None:
@@ -2919,12 +2896,12 @@ class LayerPackager:
 
         colorwash = None
         dose_plugin = _safe_get_plugin(v.controller, "dose_plugin")
-        if dose_plugin and hasattr(dose_plugin, "_controller"):
+        if dose_plugin:
             colorwash = dose_plugin._controller.get_colorwash_bands(vs.display.overlay.image_id, is_overlay=True)
 
         return RenderLayer(
             data=vs.display.overlay_data,
-            is_rgb=getattr(ovs.volume, "is_rgb", False),
+            is_rgb=ovs.volume.is_rgb,
             num_components=ovs.volume.num_components,
             ww=ovs.display.ww,
             wl=ovs.display.wl,
@@ -2954,7 +2931,7 @@ class LayerPackager:
             if (
                 not roi_state.visible
                 or roi_state.opacity <= 0.0
-                or getattr(roi_state, "is_contour", False)
+                or roi_state.is_contour
             ):
                 continue
             roi_vol = v.controller.volumes.get(roi_id)
@@ -2964,21 +2941,17 @@ class LayerPackager:
             # If this ROI is currently being resized, do not draw its raster overlay during the drag
             active_drag_id = None
             active_drag_action = None
-            if (
-                v.controller.gui
-                and hasattr(v.controller.gui, "interaction")
-                and v.controller.gui.interaction
-            ):
+            if v.controller.gui:
                 tool = v.controller.gui.interaction.active_tool
-                active_drag_id = getattr(tool, "roi_drag_id", None)
-                active_drag_action = getattr(tool, "roi_drag_action", None)
+                active_drag_id = tool.roi_drag_id
+                active_drag_action = tool.roi_drag_action
 
             if roi_id == active_drag_id and active_drag_action == "border":
-                r = getattr(roi_state, "spheroid_radius", None)
+                r = roi_state.spheroid_radius
                 if r is None:
-                    b_x = getattr(roi_state, "box_size_x", None)
-                    b_y = getattr(roi_state, "box_size_y", None)
-                    b_z = getattr(roi_state, "box_size_z", None)
+                    b_x = roi_state.box_size_x
+                    b_y = roi_state.box_size_y
+                    b_z = roi_state.box_size_z
                     if b_x is not None or b_y is not None or b_z is not None:
                         r = max(b_x or 0.0, b_y or 0.0, b_z or 0.0) / 2.0
                 if r is not None and r >= 35.0:
@@ -2990,7 +2963,7 @@ class LayerPackager:
 
             t_idx = min(vs.camera.time_idx, roi_vol.num_timepoints - 1)
             base_z, base_y, base_x = vol.shape3d
-            roi_version = getattr(roi_state, "version", 0)
+            roi_version = roi_state.version
 
             # Build cache key: if slice_idx, orientation, time, version, or bbox
             # haven't changed, reuse the previously extracted 2D slice.
@@ -3111,8 +3084,7 @@ class TextureManager:
             v.texture_tag
         )
         ov_exists = (
-            hasattr(v, "overlay_texture_tag")
-            and v.overlay_texture_tag == new_ov_texture_tag
+            v.overlay_texture_tag == new_ov_texture_tag
             and dpg.does_item_exist(v.overlay_texture_tag)
         )
         if base_exists and ov_exists:
@@ -3123,8 +3095,7 @@ class TextureManager:
             v._textures_to_delete.add(v.texture_tag)
 
         if (
-            hasattr(v, "overlay_texture_tag")
-            and v.overlay_texture_tag
+            v.overlay_texture_tag
             and v.overlay_texture_tag != new_ov_texture_tag
         ):
             v._textures_to_delete.add(v.overlay_texture_tag)
@@ -3150,7 +3121,7 @@ class TextureManager:
         # We must safely delete the old draw items and recreate them to point to the new VRAM.
         if dpg.does_item_exist(v.image_tag):
             dpg.delete_item(v.image_tag)
-        if hasattr(v, "overlay_image_tag") and dpg.does_item_exist(v.overlay_image_tag):
+        if dpg.does_item_exist(v.overlay_image_tag):
             dpg.delete_item(v.overlay_image_tag)
 
         v.image_tag = dpg.draw_image(
@@ -3215,12 +3186,12 @@ class TextureManager:
             self._safe_set_texture(
                 v.texture_tag,
                 v.last_rgba_flat,
-                getattr(v, "_tex_w", 1),
-                getattr(v, "_tex_h", 1),
+                v._tex_w,
+                v._tex_h,
             )
             return
 
-        nn_w, nn_h = getattr(v, "_tex_w", 1), getattr(v, "_tex_h", 1)
+        nn_w, nn_h = v._tex_w, v._tex_h
         self._upload_sw_nn_base(vs, nn_w, nn_h)
 
     def _upload_sw_nn_base(self, vs, canvas_w, canvas_h):
@@ -3290,8 +3261,8 @@ class TextureManager:
         self._safe_set_texture(
             v.texture_tag,
             nn_base.ravel(),
-            getattr(v, "_tex_w", 1),
-            getattr(v, "_tex_h", 1),
+            v._tex_w,
+            v._tex_h,
         )
 
     def _apply_merged_overlay_blend(
@@ -3307,7 +3278,7 @@ class TextureManager:
             and has_alpha_overlay
             and v.last_overlay_rgba_flat is not None
         ):
-            ov_actual_shape = getattr(v, "last_overlay_rgba_shape", None)
+            ov_actual_shape = v.last_overlay_rgba_shape
             if ov_actual_shape is None:
                 ov_actual_shape = v.get_slice_shape()
 
@@ -3332,8 +3303,8 @@ class TextureManager:
 
     def _clear_previous_single_native_crop(self):
         v = self.viewer
-        _prev_crop = getattr(v, "_last_single_native_ov_crop", None)
-        _buf = getattr(v, "_nn_base_buf", None)
+        _prev_crop = v._last_single_native_ov_crop
+        _buf = v._nn_base_buf
         if _prev_crop is not None:
             if _buf is not None:
                 oy0, oy1, ox0, ox1 = _prev_crop
@@ -3342,7 +3313,7 @@ class TextureManager:
 
     def _compute_and_cache_nn_base(self, rgba_2d, canvas_w, canvas_h):
         v = self.viewer
-        _buf = getattr(v, "_nn_base_buf", None)
+        _buf = v._nn_base_buf
         if _buf is None or _buf.shape[:2] != (
             canvas_h,
             canvas_w,
@@ -3427,14 +3398,14 @@ class TextureManager:
             if (
                 nn_base is rgba_2d
             ):  # identity pass returned the slice cache — copy first
-                _buf = getattr(v, "_nn_base_buf", None)
+                _buf = v._nn_base_buf
                 if _buf is not None:
                     _buf[: rgba_2d.shape[0], : rgba_2d.shape[1]] = rgba_2d
                     nn_base = _buf
 
             colorwash = None
             dose_plugin = _safe_get_plugin(v.controller, "dose_plugin")
-            if dose_plugin and hasattr(dose_plugin, "_controller"):
+            if dose_plugin:
                 colorwash = dose_plugin._controller.get_colorwash_bands(
                     vs.display.overlay.image_id, is_overlay=True
                 )
@@ -3455,7 +3426,7 @@ class TextureManager:
 
     def upload_overlay_texture(self):
         v = self.viewer
-        if not hasattr(v, "overlay_texture_tag") or not dpg.does_item_exist(
+        if not dpg.does_item_exist(
             v.overlay_texture_tag
         ):
             return
@@ -3481,16 +3452,16 @@ class TextureManager:
             self._safe_set_texture(
                 v.overlay_texture_tag,
                 v.last_overlay_rgba_flat,
-                getattr(v, "_ov_tex_w", 1),
-                getattr(v, "_ov_tex_h", 1),
+                v._ov_tex_w,
+                v._ov_tex_h,
             )
             return
 
         if v.nn_mode in (NNMode.SW_SINGLE_MERGED, NNMode.SW_SINGLE_NATIVE):
             return
 
-        nn_w = getattr(v, "_ov_tex_w", 1)
-        nn_h = getattr(v, "_ov_tex_h", 1)
+        nn_w = v._ov_tex_w
+        nn_h = v._ov_tex_h
 
         if v.nn_mode == NNMode.SW_DUAL_NATIVE:
             active_rois = v._package_roi_layers()
@@ -3504,7 +3475,7 @@ class TextureManager:
 
             colorwash = None
             dose_plugin = _safe_get_plugin(v.controller, "dose_plugin")
-            if dose_plugin and hasattr(dose_plugin, "_controller"):
+            if dose_plugin:
                 colorwash = dose_plugin._controller.get_colorwash_bands(
                     vs.display.overlay.image_id, is_overlay=True
                 )
@@ -3527,7 +3498,7 @@ class TextureManager:
                     nn_h,
                 )
         else:
-            ov_actual_shape = getattr(v, "last_overlay_rgba_shape", None)
+            ov_actual_shape = v.last_overlay_rgba_shape
             if ov_actual_shape is None:
                 ov_actual_shape = v.get_slice_shape()
 
@@ -3540,7 +3511,7 @@ class TextureManager:
             if ov_rgba_2d is None:
                 return
 
-            _buf = getattr(v, "_nn_ov_buf", None)
+            _buf = v._nn_ov_buf
             if _buf is None or _buf.shape[:2] != (nn_h, nn_w):
                 _buf = np.zeros((nn_h, nn_w, 4), dtype=np.float32)
                 v._nn_ov_buf = _buf
@@ -3668,7 +3639,7 @@ class SliderOverlay:
                             if mx >= (win_w - 90):
                                 in_hover_zone = True
                         except Exception:
-                            pass
+                            logger.debug("tick: ignored error", exc_info=True)
 
                     if (
                         is_slider_active

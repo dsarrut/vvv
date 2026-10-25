@@ -1,6 +1,9 @@
+import logging
 from contextlib import ExitStack, contextmanager
 
 import dearpygui.dearpygui as dpg
+
+logger = logging.getLogger(__name__)
 
 # Standard UI toolbar icon glyphs
 ICON_SAVE = "\uf0c7"  # Floppy disk
@@ -592,7 +595,7 @@ def build_tooltip(parent, text, gui, tag=None, text_tag=None, always_on=True, sh
         if shortcut:
             register_shortcut_hint(target_gui, text_item, base_text, shortcut)
     except (Exception, SystemError):
-        pass
+        logger.debug("build_tooltip: ignored error", exc_info=True)
 
     if always_on:
         if not hasattr(target_gui, "icon_tooltip_tags") or not isinstance(

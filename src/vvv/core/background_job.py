@@ -108,3 +108,38 @@ class JobRunner:
 
     def shutdown(self) -> None:
         self._queue.put(None)
+
+
+# Threads that must finish before the app exits (file saves): a daemon thread
+# is killed mid-write at exit, which leaves a truncated file on disk.
+_must_finish: "list[threading.Thread]" = []
+_must_finish_lock = threading.Lock()
+
+
+def start_must_finish(target, name=None) -> threading.Thread:
+    """Run target in a background thread that the shutdown waits for
+    (wait_for_must_finish): for work that must not be cut, like a file save."""
+    t = threading.Thread(target=target, daemon=True, name=name)
+    with _must_finish_lock:
+        _must_finish[:] = [x for x in _must_finish if x.is_alive()]
+        _must_finish.append(t)
+    t.start()
+    return t
+
+
+def wait_for_must_finish(timeout=120.0) -> int:
+    """Wait (up to timeout seconds in all) for the must-finish threads; returns
+    how many are still running."""
+    import time
+
+    with _must_finish_lock:
+        threads = [t for t in _must_finish if t.is_alive()]
+    if threads:
+        logger.warning(f"Waiting for {len(threads)} save(s) to finish ...")
+    end = time.monotonic() + timeout
+    for t in threads:
+        t.join(max(0.0, end - time.monotonic()))
+    left = sum(t.is_alive() for t in threads)
+    if left:
+        logger.error(f"{left} save(s) still running after {timeout:.0f} s: the file(s) may be incomplete")
+    return left

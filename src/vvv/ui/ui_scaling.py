@@ -1,3 +1,4 @@
+import logging
 from dataclasses import dataclass
 from typing import Optional, Callable, Tuple, Any, Dict
 import numpy as np
@@ -13,6 +14,8 @@ from vvv.ui.ui_components import (
     columns_row,
     label_row,
 )
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -611,7 +614,7 @@ class IntensityScalingComponent:
                 if isinstance(rng, (tuple, list)) and len(rng) == 2 and float(rng[1]) > 0:
                     state.norm_target_value = float(rng[1])
             except Exception:
-                pass
+                logger.debug("_on_norm_val_clicked: ignored error", exc_info=True)
 
         v_ref = float(state.norm_target_value)
         user_s = float(state.scaling_factor) if state.scaling_factor != 0 else 1.0

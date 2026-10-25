@@ -659,7 +659,6 @@ class RoiPluginController(PluginTagMixin):
             roi_state.spheroid_radius_x = r_mm
             roi_state.spheroid_radius_y = r_mm
             roi_state.spheroid_radius_z = r_mm
-            roi_state.spheroid_radius_xy = r_mm
             roi_state.spheroid_radius = r_mm
             vs.is_geometry_dirty = True
             vs.is_data_dirty = True
@@ -674,11 +673,11 @@ class RoiPluginController(PluginTagMixin):
         import SimpleITK as sitk
 
         if new_r_x_mm is None:
-            new_r_x_mm = getattr(roi_state, "spheroid_radius_x", None) or getattr(roi_state, "spheroid_radius_xy", None) or getattr(roi_state, "spheroid_radius", None) or 10.0
+            new_r_x_mm = getattr(roi_state, "spheroid_radius_x", None) or getattr(roi_state, "spheroid_radius", None) or 10.0
         new_r_x_mm = max(0.5, float(new_r_x_mm))
 
         if new_r_y_mm is None:
-            new_r_y_mm = getattr(roi_state, "spheroid_radius_y", None) or getattr(roi_state, "spheroid_radius_xy", None) or getattr(roi_state, "spheroid_radius", None) or 10.0
+            new_r_y_mm = getattr(roi_state, "spheroid_radius_y", None) or getattr(roi_state, "spheroid_radius", None) or 10.0
         new_r_y_mm = max(0.5, float(new_r_y_mm))
 
         if new_r_z_mm is None:
@@ -722,7 +721,6 @@ class RoiPluginController(PluginTagMixin):
         roi_state.spheroid_radius_x = new_r_x_mm
         roi_state.spheroid_radius_y = new_r_y_mm
         roi_state.spheroid_radius_z = new_r_z_mm
-        roi_state.spheroid_radius_xy = new_r_x_mm
         roi_state.spheroid_radius = new_r_x_mm
         roi_state.spheroid_center = clipped_center_phys.tolist()
 

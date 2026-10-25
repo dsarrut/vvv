@@ -1,7 +1,10 @@
+import logging
 import numpy as np
 from vvv.config import WL_PRESETS
 from vvv.maths.geometry import SpatialEngine
 from vvv.utils import ViewMode
+
+logger = logging.getLogger(__name__)
 
 _SENTINEL = object()
 
@@ -67,6 +70,7 @@ class CameraState:
         self.show_grid = False
         self.show_legend = 0
         self.show_profiles = True
+        self.show_contour = True  # not saved
         self.show_filename = 0
 
         # State-Only Sync Targets
@@ -477,7 +481,7 @@ class DVFState:
                 max_dim = max(vol.shape3d)
                 self.vector_sampling = max(1, int(round(max_dim / 100.0)))
             except Exception:
-                pass
+                logger.debug("__init__: ignored error", exc_info=True)
 
     def __setattr__(self, name, value):
         if name in self._GEOM_FIELDS and getattr(self, name, _SENTINEL) != value:

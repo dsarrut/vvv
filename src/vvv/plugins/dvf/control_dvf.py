@@ -1,4 +1,6 @@
 import dearpygui.dearpygui as dpg
+from typing import Optional
+
 from vvv.ui.ui_components import set_controls_enabled
 from vvv.plugins.plugin_api import PluginAPI, PluginTagMixin
 
@@ -6,7 +8,7 @@ from vvv.plugins.plugin_api import PluginAPI, PluginTagMixin
 class DvfController(PluginTagMixin):
     def __init__(self, plugin_id: str):
         self._plugin_id = plugin_id
-        self._api: PluginAPI  # bound in DvfPlugin.create_ui
+        self._api: Optional[PluginAPI] = None  # bound in DvfPlugin.create_ui
         self._controls_enabled = None  # last state set: the tree walk runs on changes only
 
     def _sync_float(self, tag_name: str, value: float):
@@ -19,6 +21,8 @@ class DvfController(PluginTagMixin):
         self._api = api
 
     def _get_target_vs(self):
+        if self._api is None:  # not bound yet: the nav buttons are themed before create_ui
+            return None, False
         viewer = self._api.get_active_viewer()
         if not viewer or not viewer.view_state:
             return None, False

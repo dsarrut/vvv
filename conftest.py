@@ -14,6 +14,9 @@ def boot_dpg_engine():
 @pytest.fixture(autouse=True)
 def fresh_dpg_context():
     """Soft-resets the UI state between every single test."""
+    from vvv.ui.ui_interaction import _overridden_keys
+
+    _overridden_keys.clear()  # keys forced up by an earlier test
     yield
 
     try:
