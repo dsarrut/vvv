@@ -6,8 +6,8 @@ import numpy as np
 import dearpygui.dearpygui as dpg
 from PIL import Image
 
-from vvv.core.controller import Controller
-from vvv.ui.viewer import SliceViewer, ViewMode
+from vvv.app import build_app
+from vvv.ui.viewer import ViewMode
 from vvv.ui.gui import MainGUI
 import logging
 
@@ -100,8 +100,7 @@ def vvv_screenshot(vvw_path: str, sc_json_path: str) -> int:
     except Exception:
         pass
 
-    controller = Controller()
-    controller.use_history = False
+    controller, _ = build_app(use_history=False, with_gui=False)
 
     win_w = controller.settings.data["layout"]["window_width"]
     win_h = controller.settings.data["layout"]["window_height"]
@@ -113,10 +112,7 @@ def vvv_screenshot(vvw_path: str, sc_json_path: str) -> int:
         except Exception:
             pass
 
-    for tag in ["V1", "V2", "V3", "V4"]:
-        controller.viewers[tag] = SliceViewer(tag, controller)
-
-    gui = MainGUI(controller)
+    gui = MainGUI(controller)  # after the viewport, which build_app does not make
     controller.gui = gui
 
     if not dpg.does_item_exist("global_texture_registry"):

@@ -3,11 +3,9 @@ import pytest
 import platform
 import numpy as np
 import SimpleITK as sitk
-from vvv.ui.gui import MainGUI
+from vvv.app import build_app
 from vvv.utils import ViewMode
 import dearpygui.dearpygui as dpg
-from vvv.ui.viewer import SliceViewer
-from vvv.core.controller import Controller
 from vvv.ui.ui_sequences import create_boot_sequence
 from vvv.ui.ui_sync import handle_sync_group_change, handle_wl_group_change
 from vvv.config import WL_PRESETS
@@ -17,14 +15,7 @@ from vvv.config import WL_PRESETS
 @pytest.fixture
 def headless_gui_app(synthetic_volume_factory):
     """Sets up the Controller and GUI, returning the app and a pre-loaded Base Image."""
-    controller = Controller()
-    controller.use_history = False  # Disable history for pure UI testing
-
-    for tag in ["V1", "V2", "V3", "V4"]:
-        controller.viewers[tag] = SliceViewer(tag, controller)
-
-    gui = MainGUI(controller)
-    controller.gui = gui
+    controller, gui = build_app(use_history=False)  # no history for pure UI testing
 
     base_path = synthetic_volume_factory("base.nii.gz", val=100.0)
     vs_id = controller.file.load_image(base_path)

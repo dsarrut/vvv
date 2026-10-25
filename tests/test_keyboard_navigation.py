@@ -12,6 +12,7 @@ import numpy as np
 import SimpleITK as sitk
 import dearpygui.dearpygui as dpg
 
+from vvv.app import build_app
 from vvv.utils import ViewMode
 
 
@@ -199,14 +200,9 @@ class TestDisplayToggleKeys:
 
 @pytest.fixture
 def headless_4d_app(tmp_path):
-    from vvv.core.controller import Controller
     from vvv.ui.gui import MainGUI
-    from vvv.ui.viewer import SliceViewer
 
-    controller = Controller()
-    controller.use_history = False
-    for tag in ["V1", "V2", "V3", "V4"]:
-        controller.viewers[tag] = SliceViewer(tag, controller)
+    controller, _ = build_app(use_history=False, with_gui=False)
 
     frames = [
         sitk.GetImageFromArray(np.full((5, 10, 10), float(t), dtype=np.float32))
