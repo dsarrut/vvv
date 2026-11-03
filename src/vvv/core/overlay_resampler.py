@@ -24,6 +24,93 @@ def _outside_value(vol) -> float:
     return float(vol.get_data_range()[0])  # cached: no full scan per resample
 
 
+class CroppedOverlay:
+    """An overlay resampled on a box of the base grid only, seen as the whole
+    grid: indexing returns what the full array would (the fill value outside
+    the box), so the slice, ROI and isodose readers are unchanged. A 64^3 PET
+    on a 512x512x2926 CT is ~0.5 GB instead of 3 GB. 3D scalar overlays only;
+    np.asarray() builds the full array (MIP)."""
+
+    ndim = 3
+
+    def __init__(self, crop, shape, start, fill, owner=None):
+        self.crop = crop
+        self._owner = owner  # the ITK image crop is a view of: kept alive
+        self.shape = tuple(int(n) for n in shape)
+        self.start = tuple(int(i) for i in start)
+        self.fill = fill
+        self.dtype = crop.dtype
+
+    @property
+    def nbytes(self):
+        return self.crop.nbytes
+
+    def __array__(self, dtype=None, copy=None):
+        out = np.full(self.shape, self.fill, dtype=self.dtype)
+        (z0, y0, x0), (dz, dy, dx) = self.start, self.crop.shape
+        out[z0 : z0 + dz, y0 : y0 + dy, x0 : x0 + dx] = self.crop
+        return out if dtype is None else out.astype(dtype)
+
+    def __getitem__(self, key):
+        if isinstance(key, np.ndarray):  # a boolean mask of the full grid
+            return np.asarray(self)[key]
+        key = key if isinstance(key, tuple) else (key,)
+        if any(k is Ellipsis for k in key):
+            i = next(i for i, k in enumerate(key) if k is Ellipsis)
+            key = key[:i] + (slice(None),) * (3 - len(key) + 1) + key[i + 1 :]
+        key = key + (slice(None),) * (3 - len(key))
+        # Per axis: the output run that falls in the box, and the matching crop
+        # slice (an index or a slice of the grid maps to a regular progression)
+        shape, keep, out_sl, crop_sl = [], [], [], []
+        for k, n, s0, m in zip(key, self.shape, self.start, self.crop.shape):
+            full = np.arange(n)[k]  # IndexError out of the grid, as an array
+            keep.append(np.ndim(full) > 0)
+            local = np.atleast_1d(full) - s0
+            shape.append(len(local))
+            inside = np.flatnonzero((local >= 0) & (local < m))
+            if inside.size == 0:
+                crop_sl = None
+                continue
+            lo, hi = int(inside[0]), int(inside[-1]) + 1
+            step = int(local[lo + 1] - local[lo]) if hi - lo > 1 else 1
+            stop = int(local[hi - 1]) + step
+            out_sl.append(slice(lo, hi))
+            if crop_sl is not None:
+                crop_sl.append(slice(int(local[lo]), stop if stop >= 0 else None, step))
+        out = np.full(shape, self.fill, dtype=self.dtype)
+        if crop_sl is not None:
+            out[tuple(out_sl)] = self.crop[tuple(crop_sl)]
+        return out.reshape([n for n, k in zip(shape, keep) if k])
+
+
+def _overlay_box(base_vol, overlay_vol, composite):
+    """(start, size) in x, y, z of the base grid box that covers the overlay
+    (+1 voxel for the linear interpolation), or None for the whole grid (no
+    gain, or a transform that cannot be inverted)."""
+    import SimpleITK as sitk
+
+    try:
+        to_base = composite.GetInverse()
+    except Exception:
+        return None
+    img = overlay_vol.sitk_image
+    n = img.GetSize()
+    corners = [
+        to_base.TransformPoint(img.TransformContinuousIndexToPhysicalPoint(
+            [(-0.5, n[d] - 0.5)[(c >> d) & 1] for d in range(3)]))
+        for c in range(8)
+    ]
+    rel = np.asarray(corners) - base_vol.origin
+    idx = rel @ base_vol.matrix / base_vol.spacing  # continuous index, x y z
+    full = np.array(base_vol.shape3d[::-1])
+    start = np.clip(np.floor(idx.min(axis=0)).astype(int) - 1, 0, full - 1)
+    end = np.clip(np.ceil(idx.max(axis=0)).astype(int) + 2, start + 1, full)
+    size = end - start
+    if np.prod(size) > 0.5 * np.prod(full):
+        return None
+    return start.tolist(), size.tolist()
+
+
 def resample_overlay(
     base_vol: "VolumeData",
     overlay_vol: "VolumeData",
@@ -47,20 +134,14 @@ def resample_overlay(
     """
     import SimpleITK as sitk
 
-    # Build a 3D reference image that matches base_vol's physical grid.
-    # Always 3D even when volumes are 4D to prevent ITK dimension mismatch.
-    ref_img = sitk.Image(
-        base_vol.shape3d[2],
-        base_vol.shape3d[1],
-        base_vol.shape3d[0],
-        sitk.sitkUInt8,
-    )
-    ref_img.SetSpacing(base_vol.spacing.tolist())
-    ref_img.SetOrigin(base_vol.origin.tolist())
-    ref_img.SetDirection(base_vol.matrix.flatten().tolist())
-
+    # The output grid is base_vol's physical grid (always 3D, even for 4D
+    # volumes, to prevent ITK dimension mismatch), set without allocating a
+    # reference image of the base size
     resampler = sitk.ResampleImageFilter()
-    resampler.SetReferenceImage(ref_img)
+    resampler.SetSize([int(n) for n in base_vol.shape3d[::-1]])
+    resampler.SetOutputSpacing(base_vol.spacing.tolist())
+    resampler.SetOutputOrigin(base_vol.origin.tolist())
+    resampler.SetOutputDirection(base_vol.matrix.flatten().tolist())
     resampler.SetInterpolator(sitk.sitkLinear)
     resampler.SetDefaultPixelValue(_outside_value(overlay_vol))
 
@@ -76,7 +157,26 @@ def resample_overlay(
 
     target_dim = overlay_vol.sitk_image.GetDimension()
 
-    if target_dim == 3:
+    box = None
+    if target_dim == 3 and overlay_vol.num_components == 1 and not overlay_vol.is_rgb:
+        box = _overlay_box(base_vol, overlay_vol, composite)
+    if box is not None:  # only the box of the base grid that the overlay covers
+        start, size = box
+        resampler.SetSize(size)
+        resampler.SetOutputOrigin(
+            (base_vol.origin + base_vol.matrix @ (np.array(start) * base_vol.spacing)).tolist()
+        )
+        resampled_img = resampler.Execute(overlay_vol.sitk_image)  # GIL released
+        overlay_data = CroppedOverlay(
+            sitk.GetArrayViewFromImage(resampled_img),
+            base_vol.shape3d,
+            start[::-1],
+            resampler.GetDefaultPixelValue(),
+            owner=resampled_img,
+        )
+        sitk_cache = resampled_img
+
+    elif target_dim == 3:
         resampled_img = resampler.Execute(overlay_vol.sitk_image)  # GIL released
         overlay_data = sitk.GetArrayViewFromImage(resampled_img)
         if getattr(overlay_vol, "is_dvf", False) and overlay_data.ndim == 4:
@@ -152,7 +252,26 @@ def resample_base(vol: "VolumeData", rotation_transform) -> tuple:
 
     target_dim = vol.sitk_image.GetDimension()
 
-    if target_dim == 3:
+    box = None
+    if target_dim == 3 and overlay_vol.num_components == 1 and not overlay_vol.is_rgb:
+        box = _overlay_box(base_vol, overlay_vol, composite)
+    if box is not None:  # only the box of the base grid that the overlay covers
+        start, size = box
+        resampler.SetSize(size)
+        resampler.SetOutputOrigin(
+            (base_vol.origin + base_vol.matrix @ (np.array(start) * base_vol.spacing)).tolist()
+        )
+        resampled_img = resampler.Execute(overlay_vol.sitk_image)  # GIL released
+        overlay_data = CroppedOverlay(
+            sitk.GetArrayViewFromImage(resampled_img),
+            base_vol.shape3d,
+            start[::-1],
+            resampler.GetDefaultPixelValue(),
+            owner=resampled_img,
+        )
+        sitk_cache = resampled_img
+
+    elif target_dim == 3:
         resampled_img = resampler.Execute(vol.sitk_image)  # GIL released
         base_data = sitk.GetArrayViewFromImage(resampled_img)
         if getattr(vol, "is_dvf", False) and base_data.ndim == 4:

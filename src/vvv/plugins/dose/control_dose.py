@@ -415,7 +415,7 @@ class DosePluginController(PluginTagMixin):
             # Resampled overlay data matching base geometry
             base_vs = viewer.view_state
             ov_data = getattr(base_vs.display, "overlay_data", None)
-            if isinstance(ov_data, np.ndarray):
+            if ov_data is not None:
                 data_token = id(ov_data)
                 slice_data = SliceRenderer.get_raw_slice(
                     ov_data, False, time_idx, viewer.slice_idx, viewer.orientation

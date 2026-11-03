@@ -1180,6 +1180,14 @@ class MainGUI:
             dpg.add_key_release_handler(callback=self.interaction.on_key_release)
             dpg.add_mouse_click_handler(callback=self.interaction.on_mouse_click)
             dpg.add_mouse_move_handler(callback=self.interaction.on_mouse_move)
+            # The wheel and the keys (held keys too) count as activity for the
+            # frame throttle, like a mouse move: slicing with a still mouse
+            # dropped to the 10 fps idle rate after 2 s
+            dpg.add_mouse_wheel_handler(callback=self._mark_activity)
+            dpg.add_key_down_handler(callback=self._mark_activity)
+
+    def _mark_activity(self, sender=None, app_data=None):
+        self._last_interaction_time = time.perf_counter()
 
     def cleanup(self, sender=None, app_data=None, user_data=None):
         # Terminate UI.
