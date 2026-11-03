@@ -494,6 +494,7 @@ def load_fonts():
                                 0xF15E,
                                 0xF061,  # right arrow
                                 0xF35D,  # external window icon
+                                0xF071,  # warning (low system memory)
                                 0xF05B,  #
                                 0xF076,  # Magnet icon for snap
                                 0xF77C,  # Baby icon

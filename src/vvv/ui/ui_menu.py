@@ -163,6 +163,15 @@ def build_menu_bar(gui):
                             )
 
             dpg.add_spacer(width=20)
+            # Low system memory (swapping): shown by gui._update_memory_warning
+            dpg.add_text("\uf071", tag="memory_warning_icon", show=False)
+            if dpg.does_item_exist("icon_font_tag"):
+                dpg.bind_item_font("memory_warning_icon", "icon_font_tag")
+            with dpg.tooltip("memory_warning_icon"):
+                dpg.add_text("", tag="memory_warning_tooltip_text")
+            with dpg.item_handler_registry(tag="memory_warning_click_handler"):
+                dpg.add_item_clicked_handler(callback=gui.on_memory_warning_clicked)
+            dpg.bind_item_handler_registry("memory_warning_icon", "memory_warning_click_handler")
             dpg.add_text(
                 "",
                 tag="global_status_text",
