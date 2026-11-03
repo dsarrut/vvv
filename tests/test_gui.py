@@ -1887,3 +1887,32 @@ def test_help_texts_show_the_current_keys(headless_gui_app):
     dpg.delete_item(gone)
     register_shortcut_hint(gui, mip_help, lambda: dpg.get_value(mip_help), None, kind="fn")
     assert all(dpg.does_item_exist(h[0]) for h in gui.shortcut_hints)
+
+
+def test_wheel_and_keys_keep_the_full_frame_rate(headless_gui_app, monkeypatch):
+    """Slicing with the wheel or the keys, the mouse still, is activity: not
+    the 10 fps idle rate (it was, 2 s after the last mouse move)."""
+    import time
+    import vvv.ui.gui as G
+
+    controller, gui, _, _ = headless_gui_app
+    monkeypatch.setattr(dpg, "get_mouse_pos", lambda local=False: (10, 10))
+    monkeypatch.setattr(dpg, "get_viewport_width", lambda: 100)
+    monkeypatch.setattr(dpg, "get_viewport_height", lambda: 100)
+    monkeypatch.setattr(dpg, "is_mouse_button_down", lambda b: False)
+    sleeps = []
+    monkeypatch.setattr(G.time, "sleep", sleeps.append)
+    gui.tasks.clear()
+    gui._main_thread_callbacks.clear()
+    controller._main_commits.clear()
+    controller.ui_needs_refresh = False
+    gui._last_mouse_pos = (10, 10)  # the mouse does not move
+
+    gui._last_interaction_time = time.perf_counter() - 5.0
+    gui._throttle_frame(time.perf_counter())
+    assert sleeps and sleeps[-1] > 0.05  # idle: 10 fps
+
+    sleeps.clear()
+    gui._mark_activity()  # a wheel step or a key down
+    gui._throttle_frame(time.perf_counter())
+    assert not sleeps or sleeps[-1] < 1.0 / 60 + 1e-3  # 60 fps
