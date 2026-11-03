@@ -162,6 +162,8 @@ class MainGUI:
         self._frame_errors: set[tuple[str, str]] = set()
         self.ui_dirty_this_frame = False
         self._fast_render_notice = False
+        self._memory_check_time = 0.0
+        self._memory_level = None
         self.plugin_api = PluginAPI(self)
         self._init_plugins()
 
@@ -271,6 +273,41 @@ class MainGUI:
         elif elapsed is None and self._fast_render_notice:
             self._fast_render_notice = False
             self.show_status_message("Fast rendering ready")
+
+    def _update_memory_warning(self, now=None):
+        """Every 5 s: a warning icon in the status bar while the system is low
+        on memory (it swaps, and vvv may freeze for seconds)."""
+        now = time.time() if now is None else now
+        if now - self._memory_check_time < 5.0:
+            return
+        self._memory_check_time = now
+        from vvv.core.system_memory import WARNING, CRITICAL, pressure, process_memory
+
+        level, swap = pressure()
+        shown = level in (WARNING, CRITICAL)
+        if shown:
+            gb = lambda n: f"{n / 2**30:.1f} GB"
+            mine = process_memory()
+            text = "System memory is " + ("very low" if level == CRITICAL else "low")
+            if swap:
+                text += f": {gb(swap)} swapped"
+            if mine:
+                text += f"; vvv uses {gb(mine)}"
+            text += (
+                ".\nvvv may freeze for a few seconds: close other applications"
+                "\nor some images. Click for the memory used by each image."
+            )
+            dpg.set_value("memory_warning_tooltip_text", text)
+            color = self.ui_cfg["colors"]["warning" if level == CRITICAL else "working"]
+            dpg.configure_item("memory_warning_icon", color=color)
+        if shown != (self._memory_level in (WARNING, CRITICAL)):
+            dpg.configure_item("memory_warning_icon", show=shown)
+        self._memory_level = level
+
+    def on_memory_warning_clicked(self, sender=None, app_data=None, user_data=None):
+        mem = self.get_plugin("memory_plugin")
+        if mem and not (dpg.does_item_exist(mem.window_tag) and dpg.is_item_shown(mem.window_tag)):
+            mem.toggle_memory_window()  # open (a shown one is left open)
 
     def _report_frame_error(self, e):
         """Keep the main loop alive on an unexpected error, reporting each distinct one once."""
@@ -2635,6 +2672,7 @@ class MainGUI:
                         color = self.ui_cfg["colors"].get(level) if level else None
                         self.show_status_message(text, color=color)
                     self._update_fast_render_notice()
+                    self._update_memory_warning()
 
                     ui_dirty, self.controller.ui_needs_refresh = (
                         self.controller.ui_needs_refresh,

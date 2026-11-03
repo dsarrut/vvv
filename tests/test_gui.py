@@ -1916,3 +1916,36 @@ def test_wheel_and_keys_keep_the_full_frame_rate(headless_gui_app, monkeypatch):
     gui._mark_activity()  # a wheel step or a key down
     gui._throttle_frame(time.perf_counter())
     assert not sleeps or sleeps[-1] < 1.0 / 60 + 1e-3  # 60 fps
+
+
+def test_memory_warning_icon_follows_the_system_pressure(headless_gui_app, monkeypatch):
+    """A warning icon while the system is low on memory (swapping), with the
+    swap and vvv's share in its tooltip; checked every 5 s; a click opens the
+    memory window."""
+    import vvv.core.system_memory as M
+
+    _, gui, _, _ = headless_gui_app
+    state = {"p": (M.OK, 0)}
+    monkeypatch.setattr(M, "pressure", lambda: state["p"])
+    monkeypatch.setattr(M, "process_memory", lambda: 3 * 2**30)
+
+    gui._update_memory_warning(now=100.0)
+    assert not dpg.is_item_shown("memory_warning_icon")
+
+    state["p"] = (M.WARNING, 25 * 2**30)
+    gui._update_memory_warning(now=102.0)  # not yet 5 s: not checked
+    assert not dpg.is_item_shown("memory_warning_icon")
+    gui._update_memory_warning(now=105.0)
+    assert dpg.is_item_shown("memory_warning_icon")
+    tip = dpg.get_value("memory_warning_tooltip_text")
+    assert "25.0 GB swapped" in tip and "vvv uses 3.0 GB" in tip
+
+    gui.on_memory_warning_clicked()
+    mem = gui.get_plugin("memory_plugin")
+    assert dpg.does_item_exist(mem.window_tag) and dpg.is_item_shown(mem.window_tag)
+    gui.on_memory_warning_clicked()  # a second click leaves it open
+    assert dpg.does_item_exist(mem.window_tag)
+
+    state["p"] = (M.OK, 25 * 2**30)
+    gui._update_memory_warning(now=110.0)
+    assert not dpg.is_item_shown("memory_warning_icon")
