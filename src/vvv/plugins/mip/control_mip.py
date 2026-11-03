@@ -435,7 +435,7 @@ class MIPPluginController(PluginTagMixin):
                 t = min(time_idx, data_3d.shape[0] - 1)
                 d3d = data_3d[t]
             else:
-                d3d = data_3d
+                d3d = np.asarray(data_3d)  # a cropped overlay: the full grid
 
             if d3d.ndim == 3:
                 mip_raw = compute_mip_projection(

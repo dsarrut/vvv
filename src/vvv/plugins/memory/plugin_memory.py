@@ -198,7 +198,7 @@ class MemoryPlugin(PluginProtocol, PluginTagMixin):
             # Overlay display buffer (registration resampling onto base grid)
             if vs.display.overlay.image_id:
                 ov_id = vs.display.overlay.image_id
-                if vs.display.overlay_data is not None and isinstance(vs.display.overlay_data, np.ndarray):
+                if vs.display.overlay_data is not None:
                     mem_mb = vs.display.overlay_data.nbytes / (1024 * 1024)
                     if ov_id in vol_mem_info:
                         vol_mem_info[ov_id]["resampled_overlay"] += mem_mb
