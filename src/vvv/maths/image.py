@@ -11,6 +11,7 @@ from typing import Any
 from dataclasses import dataclass, field
 from vvv.utils import get_history_path_key
 from vvv.maths.image_utils import straighten_image, extract_orientation_strings
+from vvv.core.overlay_resampler import CroppedOverlay
 import logging
 
 logger = logging.getLogger(__name__)
@@ -41,7 +42,9 @@ class RenderLayer:
     data_4d: np.ndarray = field(init=False)
 
     def __post_init__(self):
-        if self.is_rgb:
+        if isinstance(self.data, CroppedOverlay):  # 3D, indexed as the full grid
+            self.data_4d = self.data
+        elif self.is_rgb:
             if self.data.ndim == 4:
                 self.data_4d = self.data[np.newaxis, ...]
             else:
@@ -501,26 +504,26 @@ class SliceRenderer:
     @staticmethod
     def extract_slice(data, is_rgb, time_idx, slice_idx, orientation):
         try:
-            if is_rgb:
-                if data.ndim == 4:
-                    data = data[np.newaxis, ...]
-            else:
-                if data.ndim == 3:
-                    data = data[np.newaxis, ...]
-
-            t = min(time_idx, data.shape[0] - 1)
+            if not isinstance(data, CroppedOverlay):  # 3D, no time axis
+                if is_rgb:
+                    if data.ndim == 4:
+                        data = data[np.newaxis, ...]
+                else:
+                    if data.ndim == 3:
+                        data = data[np.newaxis, ...]
+                data = data[min(time_idx, data.shape[0] - 1)]
 
             # COUPLING: the flip applied per orientation determines the sign
             # conventions in ViewState.compute_overlay_pixel_shift(). If you
             # change a flip here you must update the matching sign there.
             if orientation == ViewMode.AXIAL:
-                return np.ascontiguousarray(data[t, slice_idx, ...])
+                return np.ascontiguousarray(data[slice_idx, ...])
             elif orientation == ViewMode.SAGITTAL:
                 # flipud (axis 0 of slice) inverts Z, fliplr (axis 1 of slice) inverts Y
-                return np.ascontiguousarray(data[t, ::-1, ::-1, slice_idx, ...])
+                return np.ascontiguousarray(data[::-1, ::-1, slice_idx, ...])
             elif orientation == ViewMode.CORONAL:
                 # flipud (axis 0 of slice) inverts Z
-                return np.ascontiguousarray(data[t, ::-1, slice_idx, ...])
+                return np.ascontiguousarray(data[::-1, slice_idx, ...])
             return None
         except IndexError:
             return None  # Safe fallback if UI requests a slice out of bounds
@@ -564,7 +567,9 @@ class SliceRenderer:
             return None
 
         # 1. Pad dimensions to ensure 4D (Time, Z, Y, X)
-        if is_rgb and layer_data.ndim == 4:
+        if isinstance(layer_data, CroppedOverlay):
+            pass  # 3D, no time axis (extract_slice)
+        elif is_rgb and layer_data.ndim == 4:
             layer_data = layer_data[np.newaxis, ...]
         elif not is_rgb and layer_data.ndim == 3:
             layer_data = layer_data[np.newaxis, ...]
