@@ -30,9 +30,11 @@ def base_and_overlay(tmp_path):
 
 
 def _full(base, ov, tr, monkeypatch):
+    """(ITK image, full array): the array is a view of the image, keep both."""
     with monkeypatch.context() as m:
         m.setattr(R, "_overlay_box", lambda *a: None)
-        return resample_overlay(base, ov, None, tr)[1]
+        cache, data, _ = resample_overlay(base, ov, None, tr)
+        return cache, data
 
 
 @pytest.mark.parametrize("with_transform", [False, True])
@@ -43,7 +45,7 @@ def test_cropped_overlay_reads_as_the_full_grid(base_and_overlay, monkeypatch, w
         tr = sitk.Euler3DTransform()
         tr.SetRotation(0.2, -0.1, 0.3)
         tr.SetTranslation((3.0, -2.0, 4.0))
-    full = _full(base, ov, tr, monkeypatch)
+    _keep, full = _full(base, ov, tr, monkeypatch)
     _, crop, _ = resample_overlay(base, ov, None, tr)
 
     assert isinstance(crop, CroppedOverlay) and isinstance(full, np.ndarray)
