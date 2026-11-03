@@ -126,3 +126,15 @@ def test_views_are_the_same_with_a_cropped_overlay(tmp_path, monkeypatch):
     for (fb, fo), (cb, co) in zip(full, crop):
         assert np.array_equal(fb, cb)
         assert (fo is None) == (co is None) and (fo is None or np.array_equal(fo, co))
+
+
+def test_a_rotated_base_is_resampled(base_and_overlay):
+    """resample_base (rotation preview) is not touched by the overlay crop."""
+    from vvv.core.overlay_resampler import resample_base
+
+    base, _ = base_and_overlay
+    rot = sitk.Euler3DTransform()
+    rot.SetCenter((25.0, 20.0, 30.0))
+    rot.SetRotation(0.0, 0.0, 0.3)
+    _keep, data = resample_base(base, rot)
+    assert isinstance(data, np.ndarray) and data.shape == (60, 40, 50)

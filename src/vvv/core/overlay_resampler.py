@@ -252,26 +252,7 @@ def resample_base(vol: "VolumeData", rotation_transform) -> tuple:
 
     target_dim = vol.sitk_image.GetDimension()
 
-    box = None
-    if target_dim == 3 and overlay_vol.num_components == 1 and not overlay_vol.is_rgb:
-        box = _overlay_box(base_vol, overlay_vol, composite)
-    if box is not None:  # only the box of the base grid that the overlay covers
-        start, size = box
-        resampler.SetSize(size)
-        resampler.SetOutputOrigin(
-            (base_vol.origin + base_vol.matrix @ (np.array(start) * base_vol.spacing)).tolist()
-        )
-        resampled_img = resampler.Execute(overlay_vol.sitk_image)  # GIL released
-        overlay_data = CroppedOverlay(
-            sitk.GetArrayViewFromImage(resampled_img),
-            base_vol.shape3d,
-            start[::-1],
-            resampler.GetDefaultPixelValue(),
-            owner=resampled_img,
-        )
-        sitk_cache = resampled_img
-
-    elif target_dim == 3:
+    if target_dim == 3:
         resampled_img = resampler.Execute(vol.sitk_image)  # GIL released
         base_data = sitk.GetArrayViewFromImage(resampled_img)
         if getattr(vol, "is_dvf", False) and base_data.ndim == 4:
