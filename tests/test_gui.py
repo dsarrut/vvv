@@ -1949,3 +1949,82 @@ def test_memory_warning_icon_follows_the_system_pressure(headless_gui_app, monke
     state["p"] = (M.OK, 25 * 2**30)
     gui._update_memory_warning(now=110.0)
     assert not dpg.is_item_shown("memory_warning_icon")
+
+
+def test_workspace_keeps_the_transform_sidecar(headless_gui_app, tmp_path):
+    """Issue 46: the side-car file is the reference, a workspace does not
+    override it (a side-car rewritten later, a workspace adapted from another
+    patient); a transform edited since its load is still saved."""
+    from vvv.maths.transform_io import TransformIO
+
+    controller, gui, _, _ = headless_gui_app
+    reg = gui.get_plugin("registration_plugin")._controller
+
+    def write_tfm(path, t):
+        tr = sitk.Euler3DTransform()
+        tr.SetTranslation(t)
+        TransformIO.write_transform(tr, str(path))
+
+    def image(folder, t):
+        folder.mkdir()
+        img = str(folder / "spect.nii.gz")
+        sitk.WriteImage(sitk.GetImageFromArray(np.zeros((4, 5, 6), np.float32)), img)
+        if t is not None:
+            write_tfm(folder / "spect.tfm", t)
+        vs_id = controller.file.load_image(img)
+        assert controller.wait_for_jobs(timeout=10)
+        return vs_id, controller.view_states[vs_id].space
+
+    def restore(vs_id, block):
+        reg.restore_image_state(vs_id, block, context="workspace")
+        assert controller.wait_for_jobs(timeout=10)
+
+    # Saved: only a reference to the side-car
+    p022, space = image(tmp_path / "p022", (3.0, -2.0, 1.0))
+    block = reg.serialize_image_state(p022, context="workspace")
+    assert block == {"from_sidecar": True, "is_active": True}
+
+    # The side-car rewritten after the save: the new one is shown
+    write_tfm(tmp_path / "p022" / "spect.tfm", (5.0, 0.0, 0.0))
+    again = controller.file.load_image(str(tmp_path / "p022" / "spect.nii.gz"))
+    assert controller.wait_for_jobs(timeout=10)
+    restore(again, block)
+    space = controller.view_states[again].space
+    assert space.from_sidecar and space.is_active
+    assert space.transform.GetTranslation() == pytest.approx((5.0, 0.0, 0.0))
+
+    # Old workspace of another patient (parameters and path of p022's side-car)
+    # on an image with its own side-car: its own is kept, not p022's
+    old = {
+        "is_active": True,
+        "transform_file": "spect.tfm",
+        "full_transform_path": str(tmp_path / "p022" / "spect.tfm"),
+        "transform_params": [0.0, 0.0, 0.0, 3.0, -2.0, 1.0],
+        "transform_center": [0.0, 0.0, 0.0],
+    }
+    p211, space = image(tmp_path / "p211", (-1.0, 4.0, 0.0))
+    restore(p211, old)
+    assert space.from_sidecar and space.transform.GetTranslation() == pytest.approx((-1.0, 4.0, 0.0))
+
+    # A block without parameters does not remove the side-car either
+    restore(p211, {"is_active": False, "transform_file": "None"})
+    assert space.is_active and space.transform.GetTranslation() == pytest.approx((-1.0, 4.0, 0.0))
+
+    # Edited since its load: saved with its values, restored as saved
+    controller.update_transform_manual(p211, 7.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+    edited = reg.serialize_image_state(p211, context="workspace")
+    assert edited["from_sidecar"] is False and edited["transform_params"][3] == pytest.approx(7.0)
+    p211b = controller.file.load_image(str(tmp_path / "p211" / "spect.nii.gz"))
+    assert controller.wait_for_jobs(timeout=10)
+    restore(p211b, edited)
+    space = controller.view_states[p211b].space
+    assert not space.from_sidecar and space.transform.GetTranslation() == pytest.approx((7.0, 0.0, 0.0))
+
+    # An image without a side-car gets the workspace's transform, with a
+    # warning when the file is in another folder than the image
+    p300, space = image(tmp_path / "p300", None)
+    said = []
+    reg._api.set_async_status = said.append
+    restore(p300, old)
+    assert space.transform.GetTranslation() == pytest.approx((3.0, -2.0, 1.0))
+    assert any("another folder" in m[0] for m in said)

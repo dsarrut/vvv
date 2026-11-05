@@ -151,10 +151,18 @@ class RegistrationPluginController(PluginTagMixin):
         if not vs or not vs.space:
             return {}
 
+        # The side-car file is the reference, applied again at each load: not
+        # copied in the workspace (a side-car rewritten later, or a workspace
+        # adapted to another patient, would show a stale transform, issue 46).
+        # Edited since its load, the transform is saved as any other.
+        if vs.space.from_sidecar and self._is_sidecar_unchanged(vs):
+            return {"from_sidecar": True, "is_active": vs.space.is_active}
+
         state_dict = {
             "is_active": vs.space.is_active,
             "transform_file": vs.space.transform_file,
-            "full_transform_path": vs.space.full_transform_path
+            "full_transform_path": vs.space.full_transform_path,
+            "from_sidecar": False,
         }
 
         if vs.space.transform:
@@ -182,20 +190,28 @@ class RegistrationPluginController(PluginTagMixin):
             self._preview_version += 1
         vs.reset_preview_rotation()
 
-        vs.space.is_active = data.get("is_active", False)
-        vs.space.transform_file = data.get("transform_file", "None")
-        vs.space.full_transform_path = data.get("full_transform_path", None)
-
         params = data.get("transform_params")
         center = data.get("transform_center")
-        if params is not None and center is not None:
-            import SimpleITK as sitk
-            t = sitk.Euler3DTransform()
-            t.SetCenter(tuple(center))
-            t.SetParameters(tuple(params))
-            vs.space.transform = t
+        if self._keeps_sidecar(vs, data, params):
+            # The transform applied at load (the image's side-car) stays
+            if vs.space.transform is None:
+                vs.space.is_active = False
+            elif data.get("from_sidecar"):
+                vs.space.is_active = data.get("is_active", True)
         else:
-            vs.space.transform = None
+            vs.space.is_active = data.get("is_active", False)
+            vs.space.transform_file = data.get("transform_file", "None")
+            vs.space.full_transform_path = data.get("full_transform_path", None)
+            vs.space.from_sidecar = False
+            if center is not None:
+                import SimpleITK as sitk
+                t = sitk.Euler3DTransform()
+                t.SetCenter(tuple(center))
+                t.SetParameters(tuple(params))
+                vs.space.transform = t
+            else:
+                vs.space.transform = None
+            self._warn_foreign_transform(vs, data)
 
         if vs.space.is_active:
             self._ensure_tracked(image_id)
@@ -206,6 +222,48 @@ class RegistrationPluginController(PluginTagMixin):
                 vs.base_display_data = None
                 vs._sitk_base_cache = None
             self._api.update_all_viewers_of_image(image_id)
+
+    def _is_sidecar_unchanged(self, vs) -> bool:
+        """True if the transform is still the one of its side-car file."""
+        from vvv.maths.transform_io import TransformIO
+
+        path = vs.space.full_transform_path
+        t = vs.space.transform
+        if not path or t is None or not os.path.isfile(path):
+            return False
+        try:
+            f = TransformIO.read_transform(path, list(t.GetCenter()))
+        except Exception:
+            return False
+        return np.allclose(f.GetParameters(), t.GetParameters(), atol=1e-6) and np.allclose(
+            f.GetCenter(), t.GetCenter(), atol=1e-6
+        )
+
+    @staticmethod
+    def _keeps_sidecar(vs, data, params) -> bool:
+        """Whether a workspace block leaves the transform applied at load:
+        a block written for a side-car, or, when the image has its own
+        side-car, a block without parameters or (old workspaces, without
+        "from_sidecar") a transform read from a file: the side-car is the
+        reference."""
+        if data.get("from_sidecar"):
+            return True
+        if vs.space.from_sidecar is not True:
+            return False
+        return params is None or ("from_sidecar" not in data and bool(data.get("full_transform_path")))
+
+    def _warn_foreign_transform(self, vs, data):
+        """A transform file from another folder than the image's: maybe a
+        workspace adapted from another patient."""
+        path = data.get("full_transform_path")
+        files = getattr(vs.volume, "file_paths", None) or []
+        if not path or not files:
+            return
+        here = os.path.dirname(os.path.abspath(str(files[0])))
+        if os.path.dirname(os.path.abspath(path)) != here:
+            self._api.set_async_status(
+                (f"{vs.volume.name}: transform from another folder ({path})", "warning")
+            )
 
     def save_settings(self, api: PluginAPI) -> None:
         pass
