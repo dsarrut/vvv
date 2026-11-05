@@ -1310,6 +1310,7 @@ class OverlayDrawer:
             tuple(roi_visual_states),  # Triggers redraw if ANY color changes
             ext_math_state,  # Triggers redraw if Subpixel changes
             dose_isocontour_state,
+            viewer.controller.roi.display_rotation_key(viewer.view_state),  # rotated image
         )
 
         if self._last_contour_image != current_state:

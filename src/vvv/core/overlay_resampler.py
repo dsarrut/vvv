@@ -83,17 +83,9 @@ class CroppedOverlay:
         return out.reshape([n for n, k in zip(shape, keep) if k])
 
 
-def _overlay_box(base_vol, overlay_vol, composite):
-    """(start, size) in x, y, z of the base grid box that covers the overlay
-    (+1 voxel for the linear interpolation), or None for the whole grid (no
-    gain, or a transform that cannot be inverted)."""
-    import SimpleITK as sitk
-
-    try:
-        to_base = composite.GetInverse()
-    except Exception:
-        return None
-    img = overlay_vol.sitk_image
+def _grid_box(base_vol, img, to_base):
+    """(start, size) in x, y, z of the base grid box that covers img, its
+    corners mapped by to_base (img physical -> base physical), +1 voxel."""
     n = img.GetSize()
     corners = [
         to_base.TransformPoint(img.TransformContinuousIndexToPhysicalPoint(
@@ -105,10 +97,52 @@ def _overlay_box(base_vol, overlay_vol, composite):
     full = np.array(base_vol.shape3d[::-1])
     start = np.clip(np.floor(idx.min(axis=0)).astype(int) - 1, 0, full - 1)
     end = np.clip(np.ceil(idx.max(axis=0)).astype(int) + 2, start + 1, full)
-    size = end - start
-    if np.prod(size) > 0.5 * np.prod(full):
+    return start.tolist(), (end - start).tolist()
+
+
+def _overlay_box(base_vol, overlay_vol, composite):
+    """(start, size) in x, y, z of the base grid box that covers the overlay
+    (+1 voxel for the linear interpolation), or None for the whole grid (no
+    gain, or a transform that cannot be inverted)."""
+    try:
+        to_base = composite.GetInverse()
+    except Exception:
         return None
-    return start.tolist(), size.tolist()
+    start, size = _grid_box(base_vol, overlay_vol.sitk_image, to_base)
+    if np.prod(size) > 0.5 * np.prod(base_vol.shape3d):
+        return None
+    return start, size
+
+
+def resample_roi(base_vol, data, bbox, rotation_transform):
+    """An ROI mask (3D, cropped to bbox of the base grid) as displayed while
+    its image is shown rotated (resample_base): rotated the same way, nearest
+    neighbour, on the box of the base grid it covers. Returns (data, bbox)."""
+    import SimpleITK as sitk
+
+    z0, z1, y0, y1, x0, x1 = bbox
+    src = data.view(np.uint8) if data.dtype == bool else data
+    img = sitk.GetImageFromArray(np.ascontiguousarray(src))
+    img.SetSpacing(base_vol.spacing.tolist())
+    img.SetDirection(base_vol.matrix.flatten().tolist())
+    img.SetOrigin((base_vol.origin + base_vol.matrix @ (np.array([x0, y0, z0]) * base_vol.spacing)).tolist())
+    start, size = _grid_box(base_vol, img, rotation_transform)  # read -> displayed
+
+    resampler = sitk.ResampleImageFilter()
+    resampler.SetSize(size)
+    resampler.SetOutputSpacing(base_vol.spacing.tolist())
+    resampler.SetOutputOrigin(
+        (base_vol.origin + base_vol.matrix @ (np.array(start) * base_vol.spacing)).tolist()
+    )
+    resampler.SetOutputDirection(base_vol.matrix.flatten().tolist())
+    resampler.SetInterpolator(sitk.sitkNearestNeighbor)
+    resampler.SetDefaultPixelValue(0)
+    resampler.SetTransform(rotation_transform.GetInverse())  # as resample_base
+    out = sitk.GetArrayFromImage(resampler.Execute(img))
+    if data.dtype == bool:
+        out = out.astype(bool)
+    (sx, sy, sz), (nx, ny, nz) = start, size
+    return out, (sz, sz + nz, sy, sy + ny, sx, sx + nx)
 
 
 def resample_overlay(

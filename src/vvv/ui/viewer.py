@@ -2957,7 +2957,8 @@ class LayerPackager:
                 if r is not None and r >= 35.0:
                     continue
 
-            z0, z1, y0, y1, x0, x1 = roi_vol.roi_bbox
+            # The mask as displayed: rotated with its image (display_mask)
+            mask, (z0, z1, y0, y1, x0, x1) = v.controller.roi.display_mask(vs, roi_id, roi_vol)
             if z0 == z1:
                 continue
 
@@ -2968,6 +2969,7 @@ class LayerPackager:
             # Build cache key: if slice_idx, orientation, time, version, or bbox
             # haven't changed, reuse the previously extracted 2D slice.
             cache_key = (
+                id(mask),
                 v.slice_idx,
                 v.orientation,
                 t_idx,
@@ -2988,27 +2990,27 @@ class LayerPackager:
 
                 if v.orientation == ViewMode.AXIAL:
                     if z0 <= v.slice_idx < z1:
-                        if roi_vol.data.ndim == 4:
-                            roi_slice = roi_vol.data[t_idx, v.slice_idx - z0, :, :]
+                        if mask.ndim == 4:
+                            roi_slice = mask[t_idx, v.slice_idx - z0, :, :]
                         else:
-                            roi_slice = roi_vol.data[v.slice_idx - z0, :, :]
+                            roi_slice = mask[v.slice_idx - z0, :, :]
                         offset_x, offset_y = x0, y0
                 elif v.orientation == ViewMode.CORONAL:
                     if y0 <= v.slice_idx < y1:
-                        if roi_vol.data.ndim == 4:
-                            roi_slice = roi_vol.data[t_idx, ::-1, v.slice_idx - y0, :]
+                        if mask.ndim == 4:
+                            roi_slice = mask[t_idx, ::-1, v.slice_idx - y0, :]
                         else:
-                            roi_slice = roi_vol.data[::-1, v.slice_idx - y0, :]
+                            roi_slice = mask[::-1, v.slice_idx - y0, :]
                         offset_x = x0
                         offset_y = base_z - z1
                 elif v.orientation == ViewMode.SAGITTAL:
                     if x0 <= v.slice_idx < x1:
-                        if roi_vol.data.ndim == 4:
-                            roi_slice = roi_vol.data[
+                        if mask.ndim == 4:
+                            roi_slice = mask[
                                 t_idx, ::-1, ::-1, v.slice_idx - x0
                             ]
                         else:
-                            roi_slice = roi_vol.data[::-1, ::-1, v.slice_idx - x0]
+                            roi_slice = mask[::-1, ::-1, v.slice_idx - x0]
                         offset_x = base_y - y1
                         offset_y = base_z - z1
 

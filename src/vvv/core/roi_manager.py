@@ -48,6 +48,8 @@ class ROIState:
             for ori, poly_map in native_polygons.items():
                 self.native_polygons[ori] = {k: list(v) for k, v in poly_map.items()}
                 self.polygons[ori] = {k: list(v) for k, v in poly_map.items()}
+        # The image rotation the polygons were computed for (None: as read)
+        self.polygons_rotation = None
         self.is_spheroid = False
         self.spheroid_center = None
         self.spheroid_radius = None
@@ -64,6 +66,7 @@ class ROIState:
     def invalidate(self):
         """Invalidates the cached contour polygons and increments the version counter."""
         self.version += 1
+        self.polygons_rotation = None  # the native polygons are as read
         for ori in self.polygons:
             self.polygons[ori].clear()
             if hasattr(self, "native_polygons") and ori in self.native_polygons:
@@ -144,6 +147,34 @@ class ROIManager:
     def __init__(self, controller):
         self.controller = controller
         self._lock = threading.Lock()
+        self._rotated_masks = {}  # roi id -> (key, data, bbox): display_mask
+
+    @staticmethod
+    def display_rotation_key(vs):
+        """None while the image is displayed as read; else a key of the
+        rotation it is displayed with (its base resampled, resample_base)."""
+        if vs.base_display_data is None or vs.needs_resample or not vs.space.has_rotation():
+            return None
+        t = vs.space.transform
+        return tuple(t.GetParameters()[:3]) + tuple(t.GetCenter())
+
+    def display_mask(self, vs, roi_id, roi_vol):
+        """(data, bbox) of an ROI as displayed: its mask, or, while its image
+        is shown rotated (a registration rotation), the mask rotated the same
+        way, so that the ROI stays on its anatomy. Cached per rotation."""
+        key = self.display_rotation_key(vs)
+        if key is None or roi_vol.data.ndim != 3:
+            return roi_vol.data, roi_vol.roi_bbox
+        key = (key, id(roi_vol.data), tuple(roi_vol.roi_bbox))
+        hit = self._rotated_masks.get(roi_id)
+        if hit is None or hit[0] != key:
+            from vvv.core.overlay_resampler import resample_roi
+
+            data, bbox = resample_roi(
+                vs.volume, roi_vol.data, roi_vol.roi_bbox, vs.space.get_rotation_only_transform()
+            )
+            hit = self._rotated_masks[roi_id] = (key, data, bbox)
+        return hit[1], hit[2]
 
     # ==========================================
     # INTERNAL HELPERS
@@ -1111,8 +1142,14 @@ class ROIManager:
             return
 
         needs_update = False
+        rot_key = self.display_rotation_key(vs)
         for roi_state in vs.rois.values():
             if roi_state.visible and roi_state.is_contour:
+                if roi_state.polygons_rotation != rot_key:
+                    # Polygons of another rotation (or none): recomputed
+                    for polys in roi_state.polygons.values():
+                        polys.clear()
+                    roi_state.polygons_rotation = rot_key
                 if s_idx not in roi_state.polygons[ori]:
                     needs_update = True
                     break
@@ -1138,8 +1175,10 @@ class ROIManager:
                 continue
 
             # If native polygons exist for this orientation, use them directly
+            # (in the image as read: not while it is shown rotated)
             if (
-                getattr(roi_state, "native_polygons", None)
+                rot_key is None
+                and getattr(roi_state, "native_polygons", None)
                 and ori in roi_state.native_polygons
                 and roi_state.native_polygons[ori]
             ):
@@ -1154,7 +1193,7 @@ class ROIManager:
                 roi_state.polygons[ori][s_idx] = []
                 continue
 
-            z0, z1, y0, y1, x0, x1 = roi_vol.roi_bbox
+            mask, (z0, z1, y0, y1, x0, x1) = self.display_mask(vs, roi_id, roi_vol)
             if z0 == z1:
                 roi_state.polygons[ori][s_idx] = []
                 continue
@@ -1167,20 +1206,20 @@ class ROIManager:
             if ori == ViewMode.AXIAL:
                 if z0 <= s_idx < z1:
                     roi_slice = SliceRenderer.extract_slice(
-                        roi_vol.data, False, t_idx, s_idx - z0, ori
+                        mask, False, t_idx, s_idx - z0, ori
                     )
                     offset_x, offset_y = x0, y0
             elif ori == ViewMode.CORONAL:
                 if y0 <= s_idx < y1:
                     roi_slice = SliceRenderer.extract_slice(
-                        roi_vol.data, False, t_idx, s_idx - y0, ori
+                        mask, False, t_idx, s_idx - y0, ori
                     )
                     offset_x = x0
                     offset_y = base_z - z1
             elif ori == ViewMode.SAGITTAL:
                 if x0 <= s_idx < x1:
                     roi_slice = SliceRenderer.extract_slice(
-                        roi_vol.data, False, t_idx, s_idx - x0, ori
+                        mask, False, t_idx, s_idx - x0, ori
                     )
                     offset_x = base_y - y1
                     offset_y = base_z - z1
