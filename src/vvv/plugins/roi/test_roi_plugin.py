@@ -2036,6 +2036,7 @@ class TestRoiPlugin(unittest.TestCase):
         mock_controller.volumes = {"base_id": base_vol, "roi_id": mask_vol}
 
         mock_vs = MagicMock()
+        mock_vs.space.transform = None  # no registration transform
         mock_controller.view_states = {"base_id": mock_vs}
         mock_controller.sync.get_sync_group_vs_ids.return_value = ["base_id"]
 
@@ -2043,7 +2044,10 @@ class TestRoiPlugin(unittest.TestCase):
         roi_mgr.center_on_roi("base_id", "roi_id")
 
         # Verify that crosshair coordinates were updated to physical_center
-        mock_vs.update_crosshair_from_phys.assert_called_once_with([20.0, 20.0, 20.0])
+        mock_vs.update_crosshair_from_phys.assert_called_once()
+        np.testing.assert_allclose(
+            mock_vs.update_crosshair_from_phys.call_args[0][0], [20.0, 20.0, 20.0]
+        )
 
     def test_completely_out_of_bounds_roi_warning(self):
         from vvv.core.roi_manager import ROIManager

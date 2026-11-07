@@ -1,10 +1,13 @@
 import os
 import json
+import logging
 import threading
 import numpy as np
 from vvv.utils import ViewMode
 from vvv.config import ROI_COLORS
 from vvv.maths.image import VolumeData
+
+logger = logging.getLogger(__name__)
 
 
 class ROIState:
@@ -240,7 +243,9 @@ class ROIManager:
                 )
                 mask_vol.physical_center = list(phys_pt)[:3]
             except Exception:
-                mask_vol.physical_center = pt_idx
+                # Not a voxel index as mm: center_on_roi falls back to the bbox
+                logger.debug("process_binary_mask: no physical center", exc_info=True)
+                mask_vol.physical_center = None
         else:
             if not getattr(mask_vol, "physical_center", None):
                 try:
@@ -1006,7 +1011,12 @@ class ROIManager:
             base_vol = self.controller.volumes[base_id]
             phys_center = base_vol.voxel_coord_to_physic_coord(np.array([cx, cy, cz]))
 
+        # The ROI is in its image's native space and moves with it; the
+        # crosshair is in world space: apply the image's transform (issue 49)
         vs = self.controller.view_states[base_id]
+        if vs.space.is_active and vs.space.transform is not None:
+            phys_center = vs.space.transform.TransformPoint([float(x) for x in phys_center[:3]])
+        phys_center = np.array(phys_center[:3], dtype=float)
         vs.update_crosshair_from_phys(phys_center)
 
         self.controller.sync.propagate_sync(base_id)

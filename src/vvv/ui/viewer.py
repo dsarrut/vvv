@@ -1257,7 +1257,9 @@ class SliceViewer:
             if center_changed and vs_center is not None:
                 self.center_on_physical_coord(vs_center)
                 self.last_consumed_center = list(vs_center)
-            self.needs_recenter = False
+                self.needs_recenter = False
+            # A zoom only (another viewer of the image set the ppm): a pending
+            # recenter is still to do, at the new zoom
             self.is_geometry_dirty = True
 
     def apply_local_auto_window(self, fov_fraction=0.20, target="base"):

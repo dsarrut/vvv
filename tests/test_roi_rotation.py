@@ -83,6 +83,29 @@ def test_roi_drawn_on_its_rotated_or_moved_image(cube_with_roi, transform):
         assert _iou_on_screen(c, bid, rid, tag) > 0.9, tag
 
 
+@pytest.mark.parametrize(
+    "transform",
+    [{"tz": -1900.0, "tx": 15.0}, {"rx": 10.0, "ry": -15.0, "rz": 25.0, "tx": 4.0}],
+    ids=["large_translation", "rotation_xyz"],
+)
+def test_roi_goto_lands_on_the_roi_of_a_moved_image(cube_with_roi, transform):
+    """Issue 49: the goto went to the ROI's centre in its image's native
+    space; with the image's transform (here as large as a registered time
+    point, ~2 m in z) the crosshair ended outside the image."""
+    c, bid, rid = cube_with_roi
+    _set_transform(c, bid, **transform)
+    vs = c.view_states[bid]
+    c.roi.center_on_roi(bid, rid)
+
+    # In the native voxels of the image: the centre of the cube
+    x, y, z = vs.camera.crosshair_voxel[:3]
+    assert np.allclose([z, y, x], [19.5, 44.5, 89.5], atol=0.6)
+    # In world space: where the image's transform moves it
+    native = vs.volume.voxel_coord_to_physic_coord(np.array([89.5, 44.5, 19.5]))
+    world = vs.space.transform.TransformPoint([float(v) for v in native])
+    assert np.allclose(vs.camera.crosshair_phys_coord, world, atol=0.6)
+
+
 def test_roi_contours_follow_the_rotation(cube_with_roi):
     c, bid, rid = cube_with_roi
     vs, roi = c.view_states[bid], c.view_states[bid].rois[rid]
