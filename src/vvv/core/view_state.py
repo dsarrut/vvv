@@ -813,6 +813,29 @@ class ViewState:
             use_buffer=False,
         )
 
+    def restore_crosshair_from_voxel(self):
+        """After a workspace load: put the crosshair back from its saved
+        native voxel (the image's anatomy), the world point being recomputed
+        with the image's transform. The saved world point is right only if
+        written with that same transform (a script may write native mm, a
+        .tfm may have changed since). Kept as is when no voxel is saved or
+        the voxel is outside the image. True if restored."""
+        v = self.camera.crosshair_voxel
+        if v is None or len(v) < 3:
+            return False
+        try:
+            vox = np.array([float(x) for x in v[:3]])
+        except (TypeError, ValueError):
+            return False
+        sz, sy, sx = self.volume.shape3d
+        if not (np.all(vox > -0.5) and np.all(vox < np.array([sx, sy, sz]) - 0.5)):
+            return False
+        world = self.space.display_to_world(vox, is_buffered=False)
+        if world is None:
+            return False
+        self.update_crosshair_from_phys(np.asarray(world, dtype=float))
+        return True
+
     def init_default_window_level(self):
         total_pixels = getattr(self.volume.data, "size", 0)
         if total_pixels == 0:
