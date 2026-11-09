@@ -1560,6 +1560,10 @@ def _load_workspace_sequence(gui, controller, filepath):
                         plugin.restore_image_state(
                             new_id, plugin_data, context="workspace"
                         )
+            # The transform is set (side-car at load, plugin state above):
+            # the crosshair from its native voxel (issue 49)
+            if img_data.get("camera", {}).get("crosshair_voxel") is not None:
+                vs.restore_crosshair_from_voxel()
             vs.sync_group = img_data.get("sync_group", 0)
             vs.sync_wl_group = img_data.get("sync_wl_group", 0)
 
