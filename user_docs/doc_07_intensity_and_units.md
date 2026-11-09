@@ -49,6 +49,7 @@ VVV tracks physical calibrated units attached to image metadata:
 | **SUL** | PET | SUV normalized by Lean Body Mass |
 | **Gy** | Radiotherapy | Absorbed radiation dose in Gray |
 | **Bq/mL**, **kBq/mL** | Nuclear Medicine | Absolute radioactivity concentration |
+| **Bq**, **kBq**, **MBq** | Nuclear Medicine | Activity per voxel: the sum over the image is the total activity |
 | **counts** | SPECT / PET | Raw acquisition counts |
 | **a.u.** | MRI / Other | Arbitrary / relative units |
 

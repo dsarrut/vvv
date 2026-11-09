@@ -1478,13 +1478,15 @@ class VolumeData:
                                 "suvbw": "SUVbw",
                                 "suvlbm": "SUVlbm",
                                 "suvbsa": "SUVbsa",
-                                "bq": "Bq/mL",
+                                # bq, kbq, mbq: activity per voxel (the sum
+                                # over the image is the total activity)
+                                "bq": "Bq",
                                 "bq/ml": "Bq/mL",
                                 "bqml": "Bq/mL",
-                                "kbq": "kBq/mL",
+                                "kbq": "kBq",
                                 "kbq/ml": "kBq/mL",
                                 "kbqml": "kBq/mL",
-                                "mbq": "MBq/mL",
+                                "mbq": "MBq",
                                 "mbq/ml": "MBq/mL",
                                 "gy": "Gy",
                                 "cgy": "cGy",

@@ -659,6 +659,7 @@ class MainGUI:
                         ("SUL (PET)", "SUL"),
                         ("Bq/mL (Activity)", "Bq/mL"),
                         ("kBq/mL", "kBq/mL"),
+                        ("Bq (per voxel)", "Bq"),
                         ("Gy (Dose)", "Gy"),
                         ("counts", "counts"),
                         ("a.u. (Arbitrary)", "a.u."),
