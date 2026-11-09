@@ -51,6 +51,8 @@ VVV tracks physical calibrated units attached to image metadata:
 | **Bq/mL**, **kBq/mL** | Nuclear Medicine | Absolute radioactivity concentration |
 | **counts** | SPECT / PET | Raw acquisition counts |
 | **a.u.** | MRI / Other | Arbitrary / relative units |
+| **Gy/h**, **Gy/s**, **mGy/h** | Dosimetry | Dose rate |
+| **Bq·s**, **Bq·s/mL** | Dosimetry | Time-integrated activity (TIA), per voxel or per mL |
 
 > [!TIP]
 > You can assign or modify the unit anytime in the **Active Viewer** panel using the dropdown arrow <kbd>▾</kbd> beside the **Unit** field. The unit is kept in a `.json` [side-car file](doc_17_side_car_files.md) next to the image (`ct.json` for `ct.nii.gz`): use the save icon next to the unit to write it without saving the image.
