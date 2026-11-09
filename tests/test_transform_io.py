@@ -2,6 +2,7 @@ import os
 import tempfile
 import unittest
 import numpy as np
+import pytest
 import SimpleITK as sitk
 
 from vvv.maths.transform_io import TransformIO
@@ -159,3 +160,88 @@ class TestTransformIO(unittest.TestCase):
 if __name__ == "__main__":
     unittest.main()
 
+
+
+# --- Any linear ITK transform (issue 53) -----------------------------------
+
+_PTS = [(0.0, 0.0, 0.0), (9.2, 3.3, -1.7), (-10.5, 42.0, 100.1)]
+
+
+def _euler():
+    t = sitk.Euler3DTransform()
+    t.SetCenter((15.0, 25.0, 35.0))
+    t.SetRotation(0.2, -0.3, 0.4)
+    t.SetTranslation((10.0, -5.0, 8.0))
+    return t
+
+
+def _rigid_kinds():
+    tr = sitk.TranslationTransform(3, (12.0, -7.5, -1900.0))
+    versor = sitk.VersorRigid3DTransform()
+    versor.SetCenter((1.0, 2.0, 3.0))
+    versor.SetRotation((0.0, 0.0, 1.0), 0.3)
+    versor.SetTranslation((4.0, 5.0, 6.0))
+    affine = sitk.AffineTransform(3)
+    affine.SetMatrix(_euler().GetMatrix())
+    affine.SetTranslation((-3.0, 2.0, 1.0))
+    affine.SetCenter((5.0, 5.0, 5.0))
+    sim = sitk.Similarity3DTransform()
+    sim.SetRotation((1.0, 0.0, 0.0), -0.2)
+    sim.SetTranslation((1.0, 1.0, 1.0))
+    comp = sitk.CompositeTransform([sitk.TranslationTransform(3, (1.0, 2.0, 3.0)), _euler()])
+    return {"translation": tr, "versor": versor, "affine_rigid": affine,
+            "similarity_scale_1": sim, "composite": comp}
+
+
+@pytest.mark.parametrize("kind", list(_rigid_kinds()))
+def test_any_rigid_itk_transform_is_read(tmp_path, kind):
+    disk = _rigid_kinds()[kind]
+    path = str(tmp_path / "ct.tfm")
+    sitk.WriteTransform(disk, path)
+    loaded = TransformIO.read_transform(path, fallback_center=(7.0, 8.0, 9.0))
+    assert isinstance(loaded, sitk.Euler3DTransform)
+    # vvv's transform is the inverse of the one on disk (fixed -> moving)
+    for p in _PTS:
+        np.testing.assert_allclose(loaded.TransformPoint(disk.TransformPoint(p)), p, atol=1e-6)
+
+
+def test_translation_tfm_loads_in_vvv(tmp_path):
+    """The issue's case: a TranslationTransform side-car (it had no GetMatrix)."""
+    path = str(tmp_path / "ct.tfm")
+    sitk.WriteTransform(sitk.TranslationTransform(3, (5.0, 0.0, -1900.0)), path)
+    loaded = TransformIO.read_transform(path, fallback_center=(0.0, 0.0, -1800.0))
+    np.testing.assert_allclose(loaded.GetMatrix(), np.eye(3).flatten(), atol=1e-12)
+    np.testing.assert_allclose(loaded.TransformPoint((0.0, 0.0, 0.0)), (-5.0, 0.0, 1900.0), atol=1e-9)
+    np.testing.assert_allclose(loaded.GetCenter(), (0.0, 0.0, -1800.0))
+
+
+def _scaled():
+    a = sitk.AffineTransform(3)
+    a.Scale(1.1)
+    return a
+
+
+def _sheared():
+    a = sitk.AffineTransform(3)
+    a.Shear(0, 1, 0.2)
+    return a
+
+
+def _flipped():
+    a = sitk.AffineTransform(3)
+    a.SetMatrix((-1.0, 0, 0, 0, 1.0, 0, 0, 0, 1.0))
+    return a
+
+
+@pytest.mark.parametrize(
+    "make, why",
+    [(_scaled, "scaling"), (_sheared, "scaling"), (_flipped, "scaling"),
+     (lambda: sitk.BSplineTransform(3), "not a linear")],
+    ids=["scale", "shear", "reflection", "bspline"],
+)
+def test_non_rigid_transform_is_refused_clearly(tmp_path, make, why):
+    path = str(tmp_path / "ct.tfm")
+    sitk.WriteTransform(make(), path)
+    with pytest.raises(ValueError, match=why) as err:
+        TransformIO.read_transform(path)
+    assert "ct.tfm" in str(err.value) and "rigid" in str(err.value)

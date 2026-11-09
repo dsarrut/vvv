@@ -204,9 +204,15 @@ class Controller:
             vs.space.transform_file = os.path.basename(filepath)
             vs.space.from_sidecar = False  # set by apply_transform_sidecar
             self.invalidate_resample(vs_id)
+            self.last_transform_error = None
             return True
         except Exception as e:
             logger.exception(f"Error loading transform: {e}")
+            # ValueError: a clear reason from TransformIO (non-rigid, ...)
+            self.last_transform_error = str(e) if isinstance(e, ValueError) else (
+                f"{os.path.basename(filepath)}: not a readable transform ({type(e).__name__})"
+            )
+            self._set_status(f"Transform not loaded: {self.last_transform_error}", level="warning")
             return False
 
     def apply_transform_sidecar(self, vs_id):
@@ -222,9 +228,8 @@ class Controller:
         if not path:
             return None
         if not self.load_transform(vs_id, path):
-            self._set_status(
-                f"Transform side-car not read: {os.path.basename(path)}", level="warning"
-            )
+            reason = getattr(self, "last_transform_error", None) or os.path.basename(path)
+            self._set_status(f"Transform side-car not read: {reason}", level="warning")
             return None
         vs = self.view_states[vs_id]
         space = vs.space

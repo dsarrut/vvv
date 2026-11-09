@@ -45,6 +45,8 @@ One file can hold the unit and the labels:
 * **Shown in the Transform panel**: the file name, followed by `(side-car)`; hover it to see its full path.
 * **Unload**: the <kbd>×</kbd> icon of the Transform panel removes the transform; the image is shown as read from disk. The file is kept, so the transform is applied again at the next load: rename or delete the file to stop that.
 * **Another transform**: a transform file loaded with the Load icon replaces the side-car for this session.
+* **Rigid transforms only**: any 3D rigid ITK transform is read (`TranslationTransform`, `Euler3DTransform`, `VersorRigid3DTransform`, an `AffineTransform` or `Similarity3DTransform` without scaling, a `CompositeTransform` of these), and the matrix files of [Registration](doc_12_registration.md#saving--loading-transformations). A transform with a scaling, a shear or a reflection, or a non-linear one (BSpline, displacement field), is not applied: the status bar says why.
+* **Only VVV applies it**: other tools (radot, ITK/SimpleITK scripts, ...) read the image file and ignore its `.tfm`. Images can look registered in VVV and not be for them. To put the transform in the voxels, use **Resample Image** in the [Registration](doc_12_registration.md) panel and save the image.
 
 ---
 

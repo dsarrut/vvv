@@ -91,13 +91,7 @@ class TransformIO:
 
         # --- 3. Fallback to standard ITK Transform Reader ---
         if disk_transform is None:
-            generic_transform = sitk.ReadTransform(filepath)
-            disk_transform = sitk.Euler3DTransform()
-            if generic_transform.GetDimension() == 3:
-                disk_transform.SetMatrix(generic_transform.GetMatrix())
-                disk_transform.SetTranslation(generic_transform.GetTranslation())
-                if hasattr(generic_transform, "GetCenter"):
-                    disk_transform.SetCenter(generic_transform.GetCenter())
+            disk_transform = TransformIO._rigid_from_itk(sitk.ReadTransform(filepath), filepath)
 
             # Failsafe: If Center of Rotation is exactly 0,0,0, update center while preserving offset
             if (
@@ -123,6 +117,42 @@ class TransformIO:
             return euler
         except Exception:
             return disk_transform
+
+    @staticmethod
+    def _rigid_from_itk(t, filepath=""):
+        """Any 3D linear ITK transform (Translation, Euler, Versor, Similarity,
+        Affine, a Composite of these, ...) as an Euler3DTransform, rebuilt
+        from where it maps the origin and the 3 unit vectors (issue 53).
+        vvv only handles rigid transforms: a scaling, shear or reflection, or
+        a non-linear transform (BSpline, displacement field) is refused with
+        a clear error."""
+        name = os.path.basename(filepath) or "transform"
+        kind = t.GetName() if hasattr(t, "GetName") else type(t).__name__
+        if t.GetDimension() != 3:
+            raise ValueError(f"{name}: a {t.GetDimension()}D transform, vvv needs 3D")
+        if not t.IsLinear():
+            raise ValueError(
+                f"{name}: {kind} is not a linear transform; vvv handles rigid "
+                "transforms only (use it to resample the image outside vvv)"
+            )
+        o = np.array(t.TransformPoint((0.0, 0.0, 0.0)))
+        M = np.column_stack([np.array(t.TransformPoint(tuple(e))) - o for e in np.eye(3)])
+        if not np.allclose(M.T @ M, np.eye(3), atol=1e-4) or np.linalg.det(M) < 0:
+            raise ValueError(
+                f"{name}: {kind} has a scaling, shear or reflection; vvv handles "
+                "rigid transforms (rotation + translation) only"
+            )
+        U, _, Vt = np.linalg.svd(M)  # remove the rounding noise
+        R = U @ Vt
+        # Keep the transform's own center of rotation if it has one (the
+        # failsafe of read_transform replaces a (0, 0, 0) center)
+        C = np.array(t.GetCenter(), dtype=np.float64) if hasattr(t, "GetCenter") else np.zeros(3)
+        rigid = sitk.Euler3DTransform()
+        rigid.SetCenter(C.tolist())
+        rigid.SetMatrix(R.flatten().tolist())
+        # p' = R (p - C) + C + T = R p + o  =>  T = o - C + R C
+        rigid.SetTranslation((o - C + R @ C).tolist())
+        return rigid
 
     @staticmethod
     def write_transform(transform, filepath):
