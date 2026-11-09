@@ -1491,6 +1491,13 @@ class VolumeData:
                                 "gy": "Gy",
                                 "cgy": "cGy",
                                 "mgy": "mGy",
+                                "gy/h": "Gy/h",
+                                "gy/s": "Gy/s",
+                                "mgy/h": "mGy/h",
+                                # time-integrated activity (TIA)
+                                "bqs": "Bq·s",
+                                "bqsml": "Bq·s/mL",
+                                "bqs/ml": "Bq·s/mL",
                                 "cnts": "counts",
                                 "counts": "counts",
                                 "a.u.": "a.u.",
