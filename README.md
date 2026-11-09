@@ -2,7 +2,7 @@
 
 **VVV** is a fast, research-oriented, and "minimalist" 3D/4D (medical) image viewer, conceived as a successor to [VV](https://github.com/open-vv).
 
-📖 **[Complete User Documentation](user_docs/README.md)** | **[Getting Started Guide](user_docs/doc_01_overview.md)** | **[CLI Reference](user_docs/doc_03_command_line.md)**
+📖 **[Complete User Documentation](https://github.com/dsarrut/vvv/blob/master/user_docs/README.md)** | **[Getting Started Guide](https://github.com/dsarrut/vvv/blob/master/user_docs/doc_01_overview.md)** | **[CLI Reference](https://github.com/dsarrut/vvv/blob/master/user_docs/doc_03_command_line.md)**
 
 ---
 
@@ -73,7 +73,7 @@ vvv ct.nii.gz + labels.nii.gz
 vvv my_session.vvw
 ```
 
-For more CLI options and syntax, see the **[CLI Documentation](user_docs/doc_03_command_line.md)**.
+For more CLI options and syntax, see the **[CLI Documentation](https://github.com/dsarrut/vvv/blob/master/user_docs/doc_03_command_line.md)**.
 
 ---
 
@@ -81,38 +81,38 @@ For more CLI options and syntax, see the **[CLI Documentation](user_docs/doc_03_
 
 | Single 3D Image | Image Fusion |
 | :---: | :---: |
-| ![vvv ct.nii.gz](screenshots/ct.png) | ![vvv ct.nii.gz, spect.nii.gz, jet](screenshots/ct_spect.png) |
+| ![vvv ct.nii.gz](https://raw.githubusercontent.com/dsarrut/vvv/master/screenshots/ct.png) | ![vvv ct.nii.gz, spect.nii.gz, jet](https://raw.githubusercontent.com/dsarrut/vvv/master/screenshots/ct_spect.png) |
 
 | 4D Sequence | ROI Contours |
 | :---: | :---: |
-| ![vvv ct_4D.mha](screenshots/ct_4d.png) | ![vvv and open ROIs](screenshots/rois.png) |
+| ![vvv ct_4D.mha](https://raw.githubusercontent.com/dsarrut/vvv/master/screenshots/ct_4d.png) | ![vvv and open ROIs](https://raw.githubusercontent.com/dsarrut/vvv/master/screenshots/rois.png) |
 
 | DICOM Series Browser |
 | :---: |
-| ![vvv and mini DICOM browser](screenshots/dicom.png) |
+| ![vvv and mini DICOM browser](https://raw.githubusercontent.com/dsarrut/vvv/master/screenshots/dicom.png) |
 
 ---
 
 ## User Documentation
 
-Explore the detailed topic guides in [`user_docs/`](user_docs/README.md):
+Explore the detailed topic guides in [`user_docs/`](https://github.com/dsarrut/vvv/blob/master/user_docs/README.md):
 
-- [01. Overview & Interface](user_docs/doc_01_overview.md)
-- [02. Working with Images](user_docs/doc_02_images.md)
-- [03. Command-Line Interface](user_docs/doc_03_command_line.md)
-- [04. Workspaces & Sessions](user_docs/doc_04_workspaces_and_sessions.md)
-- [05. Multi-Viewer Synchronization](user_docs/doc_05_synchronisation.md)
-- [06. Fusion & Overlays](user_docs/doc_06_fusion_and_overlays.md)
-- [07. Intensity, Units & Colormaps](user_docs/doc_07_intensity_and_units.md)
-- [08. ROIs & Contours](user_docs/doc_08_roi_and_contours.md)
-- [09. Interactive Thresholding](user_docs/doc_09_thresholding.md)
-- [10. Line Profiles](user_docs/doc_10_profiles.md)
-- [11. 3D Landmarks](user_docs/doc_11_landmarks.md)
-- [12. Rigid Registration](user_docs/doc_12_registration.md)
-- [13. Maximum Intensity Projection (MIP)](user_docs/doc_13_mip.md)
-- [14. Displacement Vector Fields (DVF)](user_docs/doc_14_dvf.md)
-- [15. DICOM Browser](user_docs/doc_15_dicom.md)
-- [16. Radiation Dose & DVH](user_docs/doc_16_dose.md)
+- [01. Overview & Interface](https://github.com/dsarrut/vvv/blob/master/user_docs/doc_01_overview.md)
+- [02. Working with Images](https://github.com/dsarrut/vvv/blob/master/user_docs/doc_02_images.md)
+- [03. Command-Line Interface](https://github.com/dsarrut/vvv/blob/master/user_docs/doc_03_command_line.md)
+- [04. Workspaces & Sessions](https://github.com/dsarrut/vvv/blob/master/user_docs/doc_04_workspaces_and_sessions.md)
+- [05. Multi-Viewer Synchronization](https://github.com/dsarrut/vvv/blob/master/user_docs/doc_05_synchronisation.md)
+- [06. Fusion & Overlays](https://github.com/dsarrut/vvv/blob/master/user_docs/doc_06_fusion_and_overlays.md)
+- [07. Intensity, Units & Colormaps](https://github.com/dsarrut/vvv/blob/master/user_docs/doc_07_intensity_and_units.md)
+- [08. ROIs & Contours](https://github.com/dsarrut/vvv/blob/master/user_docs/doc_08_roi_and_contours.md)
+- [09. Interactive Thresholding](https://github.com/dsarrut/vvv/blob/master/user_docs/doc_09_thresholding.md)
+- [10. Line Profiles](https://github.com/dsarrut/vvv/blob/master/user_docs/doc_10_profiles.md)
+- [11. 3D Landmarks](https://github.com/dsarrut/vvv/blob/master/user_docs/doc_11_landmarks.md)
+- [12. Rigid Registration](https://github.com/dsarrut/vvv/blob/master/user_docs/doc_12_registration.md)
+- [13. Maximum Intensity Projection (MIP)](https://github.com/dsarrut/vvv/blob/master/user_docs/doc_13_mip.md)
+- [14. Displacement Vector Fields (DVF)](https://github.com/dsarrut/vvv/blob/master/user_docs/doc_14_dvf.md)
+- [15. DICOM Browser](https://github.com/dsarrut/vvv/blob/master/user_docs/doc_15_dicom.md)
+- [16. Radiation Dose & DVH](https://github.com/dsarrut/vvv/blob/master/user_docs/doc_16_dose.md)
 
 ---
 

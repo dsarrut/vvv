@@ -1,20 +1,40 @@
 [build-system]
-requires = ["setuptools>=61.0"]
+requires = ["setuptools>=77.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "open-vvv"
-version = "0.7.0"
-description = "A Python-based 3D/4D image viewer inspired by VV."
+version = "0.7.1"
+description = "A fast, minimalist 3D/4D medical image viewer, successor to VV."
+readme = "README.md"
 requires-python = ">=3.10"
+license = "LGPL-3.0-only"
 license-files = ["LICENSE"]
+authors = [{ name = "David Sarrut", email = "david.sarrut@creatis.insa-lyon.fr" }]
+keywords = ["medical imaging", "image viewer", "DICOM", "NIfTI", "radiotherapy", "4D", "MPR"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Healthcare Industry",
+    "Topic :: Scientific/Engineering :: Medical Science Apps.",
+    "Topic :: Scientific/Engineering :: Visualization",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: MacOS",
+    "Environment :: X11 Applications",
+]
 dependencies = [
     "click",
     "SimpleITK",
     "dearpygui>=2.3.1",
     "numpy",
     "scikit-image",
-    "pytest",
     "Pillow",
     "setproctitle",
     "pydicom",
@@ -22,6 +42,12 @@ dependencies = [
     "fabio",
     "numba"
 ]
+
+[project.urls]
+Homepage = "https://github.com/dsarrut/vvv"
+Documentation = "https://github.com/dsarrut/vvv/blob/master/user_docs/README.md"
+Source = "https://github.com/dsarrut/vvv"
+Issues = "https://github.com/dsarrut/vvv/issues"
 
 [project.optional-dependencies]
 dev = [
