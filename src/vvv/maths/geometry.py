@@ -17,6 +17,7 @@ class SpatialEngine:
         self.transform_file = "None"
         self.full_transform_path = None
         self.from_sidecar = False  # loaded from <image name>.tfm / .mat next to it
+        self.sidecar_file = None  # that side-car's path, kept after an unload (to apply it again)
         self.is_active = False
 
         # Center of Rotation (Anatomical center)

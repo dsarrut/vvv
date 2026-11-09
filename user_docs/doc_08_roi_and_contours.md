@@ -44,6 +44,8 @@ Each row: the color, the name (click to rename), then the icons:
 
 Hover a name to see where the ROI comes from: its file, its label value (label map), and `Name and color from labels.json (side-car file)`.
 
+When the listed ROIs come from a label map with a `.json` side-car, a paperclip follows the save buttons, with `modified` once a name or a color was changed in VVV (save the label map to write them). Click it to view or edit the `.json` in a small JSON window (after a save, the names and colors are read again), or to read them again after an edit outside VVV (the masks are kept).
+
 Click a ROI to select it (<kbd>Esc</kbd> clears the selection); with the mouse over the list, <kbd>↑</kbd> / <kbd>↓</kbd> move the selection.
 
 ### 4. The selected ROI

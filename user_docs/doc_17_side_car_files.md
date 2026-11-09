@@ -45,12 +45,18 @@ One file can hold the unit and the labels:
 * **Shown in the Transform panel**: the file name, followed by `(side-car)`; hover it to see its full path.
 * **Unload**: the <kbd>×</kbd> icon of the Transform panel removes the transform; the image is shown as read from disk. The file is kept, so the transform is applied again at the next load: rename or delete the file to stop that.
 * **Another transform**: a transform file loaded with the Load icon replaces the side-car for this session.
+* **Off / on**: the side-car badge of the image list (see below) turns the transform off (the image as read from disk, the transform kept) and on again; on also applies the side-car again after an unload or another transform. The state is kept in a workspace.
 * **Rigid transforms only**: any 3D rigid ITK transform is read (`TranslationTransform`, `Euler3DTransform`, `VersorRigid3DTransform`, an `AffineTransform` or `Similarity3DTransform` without scaling, a `CompositeTransform` of these), and the matrix files of [Registration](doc_12_registration.md#saving--loading-transformations). A transform with a scaling, a shear or a reflection, or a non-linear one (BSpline, displacement field), is not applied: the status bar says why.
 * **Only VVV applies it**: other tools (radot, ITK/SimpleITK scripts, ...) read the image file and ignore its `.tfm`. Images can look registered in VVV and not be for them. To put the transform in the voxels, use **Resample Image** in the [Registration](doc_12_registration.md) panel and save the image.
 
 ---
 
 ## Where VVV Tells You
+
+* **Image list**: a paperclip on the action line of an image that uses side-car files: grey for a unit or labels, blue while a side-car transform is applied. Hover it to see the files and what each gives (`spect.json: unit bq`, `spect.tfm: transform, applied`). Click it for a small menu: the transform on/off box, view or edit the `.json`, edit the transform in the Transform panel, read a file again (after an edit outside VVV).
+* **JSON window**: the `.json` as text, with **Save** (written only if it is valid JSON, else the error is shown and the file is kept; the unit, or the ROI names and colors, are then read again), **Reload**, and a button to open the file in the system editor.
+* **Viewers**: with the file name shown (Active Viewer → Filename), an image with its side-car transform applied is named `spect.nii.gz ·tfm`.
+* **ROI panel**: a paperclip next to the save buttons when the listed ROIs come from a label map with a `.json` (names and colors), with `modified` after a rename or a color change in VVV; click it to open the file or read the names and colors again.
 
 ![Unit from the side-car file](images/doc_17_unit.png)
 

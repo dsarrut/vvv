@@ -1421,6 +1421,8 @@ class SliceViewer:
             number = self.controller.image_number(self.image_id) or "?"
             f_name = f"({number}) {vol.get_human_readable_file_path()}"
 
+        f_name += self._sidecar_tfm_suffix(self.view_state)
+
         ov_id = self.view_state.display.overlay.image_id
         if ov_id and ov_id in self.controller.volumes:
             ov_vol = self.controller.volumes[ov_id]
@@ -1429,7 +1431,7 @@ class SliceViewer:
             else:
                 number = self.controller.image_number(ov_id) or "?"
                 ov_name = f"({number}) {ov_vol.get_human_readable_file_path()}"
-            f_name += f"\n+ {ov_name}"
+            f_name += f"\n+ {ov_name}{self._sidecar_tfm_suffix(self.controller.view_states.get(ov_id))}"
 
         dpg.set_value(self.filename_text_tag, f_name)
 
@@ -1444,6 +1446,14 @@ class SliceViewer:
         dpg.set_item_pos(
             self.filename_text_tag, [max(5, int((self.quad_w - tw) / 2)), 5]
         )
+
+    @staticmethod
+    def _sidecar_tfm_suffix(vs):
+        """' ·tfm' while the image is shown with its side-car transform (issue 54)."""
+        sp = getattr(vs, "space", None)
+        if sp is not None and sp.from_sidecar and sp.is_active and sp.transform is not None:
+            return " \u00b7tfm"
+        return ""
 
     def _package_base_layer(self):
         return self.packager.package_base_layer()
