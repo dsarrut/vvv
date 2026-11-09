@@ -1,6 +1,7 @@
 import os
 import json
 import numpy as np
+import pytest
 import SimpleITK as sitk
 from unittest.mock import MagicMock, patch
 from vvv.maths.image import VolumeData
@@ -41,7 +42,7 @@ def test_sidecar_json_unit_detection(tmp_path):
         json.dump({"modality": "pet", "unit": "bq"}, f)
 
     pet_bq_vol = VolumeData(pet_bq_path)
-    assert pet_bq_vol.unit == "Bq/mL"
+    assert pet_bq_vol.unit == "Bq"
     assert "pet_bq.json" in pet_bq_vol.unit_source
 
     # 4. PET with "sul"
@@ -178,7 +179,7 @@ def test_p200_sidecar_detection():
 
     if os.path.exists(pet_bq_path):
         pet_bq_vol = VolumeData(pet_bq_path)
-        assert pet_bq_vol.unit == "Bq/mL"
+        assert pet_bq_vol.unit == "Bq"
         assert "pet_bq.json" in pet_bq_vol.unit_source
 
 
@@ -711,3 +712,17 @@ def test_virtual_scaling_draw_legend():
         assert "%" in text_labels
 
 
+
+
+@pytest.mark.parametrize(
+    "raw, unit",
+    [("bq", "Bq"), ("kBq", "kBq"), ("MBQ", "MBq"), ("bqml", "Bq/mL"), ("Bq/mL", "Bq/mL"),
+     ("kbqml", "kBq/mL"), ("mbq/ml", "MBq/mL")],
+)
+def test_bq_is_per_voxel_bqml_a_concentration(tmp_path, raw, unit):
+    """bq is the activity per voxel (as radot writes it), bqml the concentration (issue 53)."""
+    path = str(tmp_path / "spect.nii.gz")
+    sitk.WriteImage(sitk.GetImageFromArray(np.zeros((4, 4, 4), np.float32)), path)
+    with open(tmp_path / "spect.json", "w") as f:
+        json.dump({"unit": raw}, f)
+    assert VolumeData(path).unit == unit
