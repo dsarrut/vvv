@@ -12,6 +12,7 @@ from vvv.ui.ui_components import (
     register_shortcut_hint,
     build_renamable_input,
 )
+from vvv.ui.ui_sidecar import build_image_badge, sync_image_badge
 
 """
 ARCHITECTURE MANDATES (UI Components):
@@ -71,6 +72,7 @@ def highlight_active_image_in_list(gui, active_img_id):
 def sync_image_list_ui(gui):
     """Synchronizes the image list sliders every frame without a full rebuild."""
     for vs_id, vs in gui.controller.view_states.items():
+        sync_image_badge(gui, vs_id)
         slider_tag = f"slider_time_{vs_id}"
         if dpg.does_item_exist(slider_tag):
             if not dpg.is_item_active(slider_tag):
@@ -317,6 +319,9 @@ def refresh_image_list_ui(gui):
                             dpg.bind_item_theme(btn, "icon_button_theme")
                     if dpg.does_item_exist("delete_button_theme"):
                         dpg.bind_item_theme(btn_close, "delete_button_theme")
+
+                    # Side-car files (unit, labels, transform): shown when used
+                    build_image_badge(gui, vs_id)
 
                     if vs.volume.num_timepoints > 1:
                         dpg.add_spacer(width=5)

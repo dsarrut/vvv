@@ -227,6 +227,7 @@ class Controller:
         path = transform_sidecar_path(paths[0], series=len(paths) > 1)
         if not path:
             return None
+        self.view_states[vs_id].space.sidecar_file = os.path.abspath(path)
         if not self.load_transform(vs_id, path):
             reason = getattr(self, "last_transform_error", None) or os.path.basename(path)
             self._set_status(f"Transform side-car not read: {reason}", level="warning")
@@ -241,6 +242,33 @@ class Controller:
         self.resample_image(vs_id)
         self._set_status(f"Transform applied: {os.path.basename(path)} (side-car)")
         return path
+
+    def set_transform_active(self, vs_id, active):
+        """Show the image with its transform (active) or as read from disk; the
+        transform is kept. A side-car transform that was unloaded, or replaced
+        by another file, is read again. The crosshair stays at its world point.
+        Returns True if the image is now shown as asked."""
+        vs = self.view_states.get(vs_id)
+        if not vs:
+            return False
+        space = vs.space
+        if active and not space.from_sidecar and space.sidecar_file:
+            return self.apply_transform_sidecar(vs_id) is not None
+        if active and space.transform is None:
+            return False
+        if bool(space.is_active) == bool(active):
+            return True
+        space.is_active = bool(active)
+        vs.reset_preview_rotation()
+        if vs.camera.crosshair_phys_coord is not None:
+            vs.update_crosshair_from_phys(vs.camera.crosshair_phys_coord)
+        self.invalidate_resample(vs_id)
+        self.resample_image(vs_id)  # base and overlays
+        self.update_all_viewers_of_image(vs_id)
+        name = os.path.basename(space.full_transform_path or "") or space.transform_file
+        self._set_status(f"Transform {'applied' if active else 'off'}: {name}")
+        self.ui_needs_refresh = True
+        return True
 
     def unload_transform(self, vs_id):
         """Remove the image's transform (its file is kept): the image is shown

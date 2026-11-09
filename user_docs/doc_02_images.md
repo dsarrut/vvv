@@ -58,7 +58,8 @@ Each image entry features a row of quick actions:
 * **Save**: saves the image back to its file (and its unit to its `.json` [side-car file](doc_17_side_car_files.md)).
 * **Save As**: saves the image to a new file path and format.
 * **Reload**: reads the image again from disk. When the file changed on disk (or the voxels were changed in vvv), the name is shown in orange.
-* **Close** (last): unloads the image from memory.
+* **Close**: unloads the image from memory.
+* **Side-car** (paperclip, only when the image uses [side-car files](doc_17_side_car_files.md)): grey for a unit or labels (`.json`), blue while a side-car transform (`.tfm`) is applied. Hover it to see the files; click it to turn the transform off or on, view or edit the `.json` (in a small JSON window), edit the transform in the Transform panel, or read a file again.
 
 ### 4. 4D Time Slider
 For a 4D image, a time slider (`4D` ... `/ N`) follows the action buttons on the same row; <kbd>←</kbd> / <kbd>→</kbd> also change the frame.

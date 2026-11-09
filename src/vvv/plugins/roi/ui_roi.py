@@ -274,6 +274,7 @@ class RoiPluginUI(PluginTagMixin):
                     tooltip="Save the listed ROIs as... (label image + JSON, or one file per ROI)",
                     api=self.api,
                 )
+                self._build_sidecar_badge(cfg_c)
                 dpg.add_text(
                     "",
                     tag=self._t("text_roi_save_filename"),
@@ -564,7 +565,19 @@ class RoiPluginUI(PluginTagMixin):
             else False
         )
 
+        # A label map's side-car json written (saved, edited outside): the
+        # badge's "modified" is checked again
+        from vvv.core.sidecar import sidecar_path
+
+        sidecar_mtimes = tuple(
+            os.path.getmtime(j) if os.path.isfile(j) else None
+            for key, (kind, _) in sources.items()
+            if key and kind == "Label Map"
+            for j in (sidecar_path(key),)
+        )
+
         table_state_key = (
+            sidecar_mtimes,
             vs_id,
             is_mip,
             has_image,
@@ -646,6 +659,7 @@ class RoiPluginUI(PluginTagMixin):
                 dpg.configure_item(tag, enabled=enabled)
 
         self._update_source_combo(sources, source_filter)
+        self._update_sidecar_badge(rois, volumes, source_filter)
 
         if dpg.does_item_exist(self._t("btn_roi_above_overlay")) and viewer and viewer.view_state:
             val = bool(getattr(viewer.view_state.display, "roi_above_overlay", False))
@@ -1260,6 +1274,111 @@ class RoiPluginUI(PluginTagMixin):
                 if source_filter is None
                 else source_filter or "ROIs created in vvv (no file)",
             )
+
+    # --- Side-car json of the label maps (names and colors, issue 54) ---
+
+    def _build_sidecar_badge(self, cfg_c):
+        from vvv.ui.ui_sidecar import ICON_SIDECAR, ensure_badge_themes
+
+        ensure_badge_themes()
+        tag = self._t("btn_roi_sidecar")
+        build_icon_button(
+            icon=ICON_SIDECAR,
+            callback=self.on_roi_sidecar_clicked,
+            tag=tag,
+            theme="sidecar_badge_muted_theme",
+            show=False,
+        )
+        with dpg.tooltip(tag):
+            dpg.add_text("", tag=self._t("text_roi_sidecar_tip"))
+        dpg.add_text(
+            "modified", tag=self._t("text_roi_sidecar_modified"), color=cfg_c["text_dim"], show=False
+        )
+        self._label_sidecars = {}
+
+    def _update_sidecar_badge(self, rois, volumes, source_filter):
+        """Shown when the listed ROIs come from a label map with a side-car json;
+        'modified' once a name or a color differs from the file."""
+        from vvv.ui.ui_sidecar import label_sidecar_modified, roi_label_sidecars
+
+        tag = self._t("btn_roi_sidecar")
+        if not dpg.does_item_exist(tag):
+            return
+        found = roi_label_sidecars(rois, volumes, source_filter)
+        self._label_sidecars = {
+            lm: (js, label_sidecar_modified(rois, volumes, lm)) for lm, js in found.items()
+        }
+        modified = any(m for _, m in self._label_sidecars.values())
+        dpg.configure_item(tag, show=bool(found))
+        set_item_show(self._t("text_roi_sidecar_modified"), bool(found) and modified, self.api)
+        lines = [
+            f"{os.path.basename(js)}: names and colors{' (modified in vvv, unsaved)' if m else ''}"
+            for js, m in self._label_sidecars.values()
+        ]
+        dpg.set_value(
+            self._t("text_roi_sidecar_tip"),
+            "Side-car files\n" + "\n".join(lines) + "\nClick: view / edit them or read them again",
+        )
+
+    def on_roi_sidecar_clicked(self, sender=None, app_data=None, user_data=None):
+        """Popup: per label map json, open it in the system editor or read its
+        names and colors again."""
+        from vvv.ui.ui_sidecar import build_tooltip_text
+
+        tag = self._t("roi_sidecar_popup")
+        if dpg.does_item_exist(tag):
+            dpg.delete_item(tag)
+        x, y = dpg.get_mouse_pos(local=False)
+        with dpg.window(tag=tag, popup=True, autosize=True, no_title_bar=True, pos=[int(x), int(y)]):
+            for lm, (js, modified) in self._label_sidecars.items():
+                with dpg.group(horizontal=True):
+                    t = dpg.add_text(os.path.basename(js))
+                    build_tooltip_text(t, f"{js}\nnames and colors of the ROIs of {os.path.basename(lm)}")
+                    dpg.add_text(
+                        "names and colors" + (", modified" if modified else ""), color=[150, 150, 150]
+                    )
+                    build_icon_button(
+                        icon="\uf044",
+                        callback=lambda s, a, u: self.on_roi_sidecar_open(*u),
+                        user_data=(lm, js),
+                        tooltip="View / edit the file",
+                        api=self.api,
+                    )
+                    build_icon_button(
+                        icon="\uf01e",
+                        callback=lambda s, a, u: self.on_roi_sidecar_reread(u),
+                        user_data=lm,
+                        tooltip="Read the names and colors again (the masks are kept)",
+                        api=self.api,
+                    )
+
+    def on_roi_sidecar_open(self, label_map_path, json_path):
+        """The label map's json in the JSON window; a save reads the names and
+        colors again."""
+        from vvv.ui.ui_sidecar import open_json_window
+
+        popup = self._t("roi_sidecar_popup")
+        if dpg.does_item_exist(popup):
+            dpg.configure_item(popup, show=False)
+        open_json_window(
+            self.api, json_path, on_saved=lambda: self.on_roi_sidecar_reread(label_map_path)
+        )
+
+    def on_roi_sidecar_reread(self, label_map_path):
+        from vvv.ui.ui_sidecar import reload_label_names
+
+        popup = self._t("roi_sidecar_popup")
+        if dpg.does_item_exist(popup):
+            dpg.configure_item(popup, show=False)
+        viewer = self.api.get_active_viewer()
+        if not viewer or not viewer.view_state:
+            return
+        vs = viewer.view_state
+        n = reload_label_names(vs.rois, self.api.get_volumes(), label_map_path)
+        vs.is_data_dirty = True
+        vs.is_geometry_dirty = True
+        self.api.update_all_viewers_of_image(viewer.image_id)
+        self.api.notify(f"{n} ROI{'s' if n != 1 else ''} updated from {os.path.basename(label_map_path)}'s side-car")
 
     def on_roi_source_changed(self, sender, app_data, user_data=None):
         self._c.on_roi_source_changed(self._source_items.get(app_data))
