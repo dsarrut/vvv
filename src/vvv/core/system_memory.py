@@ -62,14 +62,31 @@ def _psi_level(text):
     return OK
 
 
+def _darwin_level(pressure_level, free_pct):
+    """Level on macOS from its pressure level (1 / 2 / 4) and the share of
+    memory free or reclaimable (kern.memorystatus_level, as memory_pressure
+    prints it). The pressure level alone is too eager: it stays at 2
+    (warning) with 40 % free and a little swap, a normal state on macOS."""
+    if pressure_level == 4 or (free_pct is not None and free_pct < 5):
+        return CRITICAL
+    if free_pct is not None and free_pct < 15:
+        return WARNING
+    if pressure_level is None and free_pct is None:
+        return None
+    return OK
+
+
 def pressure():
     """(level, swap_used_bytes): level is OK, WARNING or CRITICAL (None if
     unknown), swap_used_bytes None if unknown."""
     try:
         if sys.platform == "darwin":
             lvl = _sysctl("kern.memorystatus_vm_pressure_level", ctypes.c_int)
+            free = _sysctl("kern.memorystatus_level", ctypes.c_int)
             swap = _sysctl("vm.swapusage", _XswUsage)
-            level = None if lvl is None else {1: OK, 2: WARNING, 4: CRITICAL}.get(lvl.value, OK)
+            level = _darwin_level(
+                None if lvl is None else lvl.value, None if free is None else free.value
+            )
             return level, None if swap is None else int(swap.used)
         if sys.platform.startswith("linux"):
             info = _meminfo(_read("/proc/meminfo") or "")
