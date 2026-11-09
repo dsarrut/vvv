@@ -13,7 +13,9 @@ logger = logging.getLogger(__name__)
 if TYPE_CHECKING:
     from .ui_dose import DosePluginUI
 
-DOSE_UNITS = {"gy", "mgy", "gy/decay"}
+# Doses and dose rates: isodoses and DVH are useful on both. The values
+# are shown in the image's own unit, never converted.
+DOSE_UNITS = {"gy", "cgy", "mgy", "gy/decay", "gy/h", "gy/s", "mgy/h"}
 
 # Standard clinical radiotherapy isodose colors
 DEFAULT_ISODOSE_LEVELS = [
@@ -161,9 +163,11 @@ class DosePluginController(PluginTagMixin):
         Returns:
             (is_active, target_volume, is_overlay, unit_string, target_id, target_vs)
         Priority:
-            1. Fused overlay image if unit in {'gy', 'mgy', 'gy/decay'} or 'dose' in name/path.
-            2. Base image if unit in {'gy', 'mgy', 'gy/decay'} or 'dose' in name/path.
+            1. Fused overlay image if its unit is a dose unit (DOSE_UNITS).
+            2. Base image if its unit is a dose unit.
             3. Fallback (inactive): overlay if present, else base.
+        Read-only: the unit of an image is never changed here (a file named
+        *dose* without unit already gets Gy at load; the Enable button sets Gy).
         """
         if not self._api:
             return False, None, False, None, None, None
@@ -180,14 +184,7 @@ class DosePluginController(PluginTagMixin):
         base_unit_str = str(base_unit).strip() if base_unit else None
 
         def is_dose_vol(vol, unit_str):
-            if unit_str and unit_str.lower() in DOSE_UNITS:
-                return True
-            if vol:
-                name = (getattr(vol, "name", "") or "").lower()
-                first_path = vol.file_paths[0].lower() if (getattr(vol, "file_paths", None) and len(vol.file_paths) > 0) else ""
-                if "dose" in name or "dose" in first_path:
-                    return True
-            return False
+            return bool(vol) and self.is_dose_unit(unit_str)
 
         # 1. Check fused overlay first
         if base_vs and base_vs.display.overlay:
@@ -201,16 +198,10 @@ class DosePluginController(PluginTagMixin):
                     ov_unit = getattr(ov_vol, "unit", None)
                     ov_unit_str = str(ov_unit).strip() if ov_unit else None
                     if is_dose_vol(ov_vol, ov_unit_str):
-                        if not ov_unit_str or ov_unit_str.lower() not in DOSE_UNITS:
-                            ov_vol.unit = "Gy"
-                            ov_unit_str = "Gy"
                         return True, ov_vol, True, ov_unit_str, str(ov_id), ov_vs
 
         # 2. Check base image
         if is_dose_vol(base_vol, base_unit_str):
-            if not base_unit_str or base_unit_str.lower() not in DOSE_UNITS:
-                base_vol.unit = "Gy"
-                base_unit_str = "Gy"
             return True, base_vol, False, base_unit_str, str(base_id) if base_id is not None else None, base_vs
 
         # 3. Fallback inactive target (overlay if present, else base)

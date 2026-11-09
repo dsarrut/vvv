@@ -1554,7 +1554,9 @@ class VolumeData:
         # 3. Fallback
         first_path = self.file_paths[0] if (getattr(self, "file_paths", None) and len(self.file_paths) > 0) else getattr(self, "name", "")
         base_name = os.path.basename(first_path).lower() if first_path else ""
-        if "dose" in base_name:
+        # A dose rate (dose_rate.mhd, OpenGATE *_dose_rate*) is not in Gy, and
+        # its unit (Gy/s, Gy/h) is not known: left unset, the user chooses
+        if "dose" in base_name and "rate" not in base_name:
             self.unit = "Gy"
             self.unit_source = "Inferred (Filename)"
             return

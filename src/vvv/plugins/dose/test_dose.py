@@ -604,6 +604,51 @@ class TestDosePlugin(unittest.TestCase):
         # 100% should be nudged slightly (0.999 * max)
         self.assertAlmostEqual(thr_100, 6.746e-8 * 0.999, delta=1e-12)
 
+    def test_dose_units_are_kept(self):
+        """A dose rate or a cGy dose is a dose image, and its unit is never
+        relabelled as Gy (issue 53)."""
+        for unit in ("Gy/h", "Gy/s", "mGy/h", "cGy", "mGy", "Gy/decay"):
+            self.mock_viewer.volume.unit = unit
+            self.mock_viewer.volume.name = "dose_rate.nii.gz"
+            is_active, target_vol, _, found, _, _ = self.plugin._controller.get_dose_target_info()
+            self.assertTrue(is_active, unit)
+            self.assertEqual(found, unit)
+            self.assertEqual(self.mock_viewer.volume.unit, unit)
+
+    def test_dose_name_does_not_change_the_unit(self):
+        """A non-dose unit is kept even when the file name contains 'dose'."""
+        self.mock_viewer.volume.name = "dose.nii.gz"
+        self.mock_viewer.volume.file_paths = ["/data/dose.nii.gz"]
+        for unit in ("a.u.", None):
+            self.mock_viewer.volume.unit = unit
+            self.assertFalse(self.plugin._controller.get_dose_target_info()[0])
+            self.assertEqual(self.mock_viewer.volume.unit, unit)
+
+    def test_dose_rate_filename_gets_no_unit(self):
+        import SimpleITK as sitk
+        import tempfile, os
+        from vvv.maths.image import VolumeData
+        with tempfile.TemporaryDirectory() as d:
+            for name, unit in (("dose_rate.mhd", None), ("gate_dose_rate_gys.mhd", None), ("dose.mhd", "Gy")):
+                path = os.path.join(d, name)
+                sitk.WriteImage(sitk.GetImageFromArray(np.zeros((3, 3, 3), np.float32)), path)
+                self.assertEqual(VolumeData(path).unit, unit, name)
+
+    def test_dose_rate_sidecar_unit_is_kept(self):
+        import SimpleITK as sitk
+        import tempfile, os, json
+        from vvv.maths.image import VolumeData
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "dose_rate.nii.gz")
+            sitk.WriteImage(sitk.GetImageFromArray(np.zeros((3, 3, 3), np.float32)), path)
+            with open(os.path.join(d, "dose_rate.json"), "w") as f:
+                json.dump({"modality": "dose", "unit": "Gy/h"}, f)
+            vol = VolumeData(path)
+            self.mock_viewer.volume = vol
+            is_active, _, _, unit, _, _ = self.plugin._controller.get_dose_target_info()
+            self.assertTrue(is_active)
+            self.assertEqual((unit, vol.unit), ("Gy/h", "Gy/h"))
+
     def test_dose_filename_heuristic_unit(self):
         from vvv.maths.image import VolumeData
         vol = VolumeData("data/output_dose.mhd")
@@ -1594,6 +1639,7 @@ class TestDosePlugin(unittest.TestCase):
         dose_vol.scale_factor = 1.0
         dose_vol.get_data_range.return_value = (30.0, 30.0)
         dose_vol.name = "Dose30"
+        dose_vol.unit = "Gy"
 
         roi_arr = np.ones((10, 10, 10), dtype=np.uint8)
         roi_sitk = sitk.GetImageFromArray(roi_arr)
@@ -1629,6 +1675,35 @@ class TestDosePlugin(unittest.TestCase):
         self.assertGreater(dvh_win._calc_token, first_token)
         self.assertTrue(dvh_win.wait_for_calculation(timeout=5.0))
         self.assertEqual(len(dvh_win.curves), 1)
+
+    def test_dvh_labels_show_the_dose_unit(self):
+        """A dose-rate DVH is labelled in its unit, not in Gy (issue 53)."""
+        import SimpleITK as sitk
+
+        ui = self.plugin._ui
+        arr = np.full((10, 10, 10), 2.0, dtype=np.float32)
+        dose_vol = MagicMock(data=arr, sitk_image=sitk.GetImageFromArray(arr), scale_factor=1.0, unit="Gy/h")
+        dose_vol.name = "rate"
+        dose_vol.get_data_range.return_value = (2.0, 2.0)
+        roi_arr = np.ones((10, 10, 10), dtype=np.uint8)
+        roi_vol = MagicMock(data=roi_arr, sitk_image=sitk.GetImageFromArray(roi_arr))
+        self.mock_viewer.volume = dose_vol
+        self.mock_api.get_volumes.return_value = {"img_1": dose_vol, "roi_1": roi_vol}
+        roi_state = MagicMock(color=[255, 0, 0, 255])
+        roi_state.name = "ROI1"
+        self.mock_viewer.view_state.rois = {"roi_1": roi_state}
+
+        ui.on_open_dvh_clicked()
+        w = ui.dvh_win
+        w.recompute_and_update(fit_axes=True, async_calc=True)
+        self.assertTrue(w.wait_for_calculation(timeout=5.0))
+        w._render_plot_and_table()
+        self.assertEqual(w.dose_unit, "Gy/h")
+        self.assertEqual(dpg.get_item_configuration(w._t("dvh_plot_x_axis"))["label"], "Dose (Gy/h)")
+        self.assertEqual(dpg.get_item_configuration(w._t("dvh_col_mean"))["label"], "Mean (Gy/h)")
+        radio = w._t("dvh_radio_dose_scale")
+        self.assertEqual(dpg.get_item_configuration(radio)["items"], ["Dose: Gy/h", "Dose: %"])
+        self.assertEqual(dpg.get_value(radio), "Dose: Gy/h")
 
     def test_dvh_button_toggles_window(self):
         """The DVH button shows / hides the window and shows its state."""
