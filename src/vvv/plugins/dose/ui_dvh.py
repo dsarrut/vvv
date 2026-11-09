@@ -45,6 +45,7 @@ class DVHWindow(PluginTagMixin):
         self.is_volume_relative: bool = True   # True: %, False: cc
         self.is_dose_relative: bool = False     # True: %, False: Gy
         self.norm_prescription_gy: float = 50.0 # From IntensityScalingComponent if available
+        self.dose_unit: str = "Gy"  # the dose image's unit (Gy, cGy, Gy/h, ...): never converted
         self.sort_column: Optional[str] = None
         self.sort_reverse: bool = False
         self.window_tag = self._t("dvh_window")
@@ -545,6 +546,7 @@ class DVHWindow(PluginTagMixin):
         if not roi_tasks:
             self.curves = []
             self.norm_prescription_gy = norm_prescription_gy
+            self.dose_unit = unit_str or "Gy"
             if dpg.does_item_exist(self._t("dvh_lbl_target_dose")):
                 dpg.set_value(self._t("dvh_lbl_target_dose"), f"[{role}] {dose_name} ({unit_str})")
             if dpg.does_item_exist(self._t("dvh_btn_refresh")):
@@ -592,6 +594,7 @@ class DVHWindow(PluginTagMixin):
                     return
                 self.norm_prescription_gy = norm_prescription_gy
                 self.curves = new_curves
+                self.dose_unit = unit_str or "Gy"
                 if dpg.does_item_exist(self._t("dvh_lbl_target_dose")):
                     dpg.set_value(
                         self._t("dvh_lbl_target_dose"),
@@ -825,6 +828,24 @@ class DVHWindow(PluginTagMixin):
             dpg.add_text(f"{c.median_dose:.2f}", parent=row)
             dpg.add_text(f"{c.d2:.2f}", parent=row)
 
+    _DOSE_COLUMNS = (
+        ("dvh_col_min", "Min"), ("dvh_col_mean", "Mean"), ("dvh_col_max", "Max"),
+        ("dvh_col_d98", "D98"), ("dvh_col_d50", "D50"), ("dvh_col_d2", "D2"),
+    )
+
+    def _apply_dose_unit_labels(self):
+        """The table columns and the dose-scale choice show the image's unit."""
+        u = self.dose_unit
+        for tag, name in self._DOSE_COLUMNS:
+            if dpg.does_item_exist(self._t(tag)):
+                dpg.configure_item(self._t(tag), label=f"{name} ({u})")
+        radio = self._t("dvh_radio_dose_scale")
+        if dpg.does_item_exist(radio):
+            items = [f"Dose: {u}", "Dose: %"]
+            if dpg.get_item_configuration(radio).get("items") != items:
+                dpg.configure_item(radio, items=items)
+                dpg.set_value(radio, items[1] if self.is_dose_relative else items[0])
+
     def _render_plot_and_table(self, fit_axes: bool = False):
         """Redraws the DVH plot lines and updates the metrics table."""
         y_axis_tag = self._t("dvh_plot_y_axis")
@@ -833,7 +854,8 @@ class DVHWindow(PluginTagMixin):
             return
 
         # 1. Update Axis Labels
-        x_label = "Dose (%)" if self.is_dose_relative else "Dose (Gy)"
+        self._apply_dose_unit_labels()
+        x_label = "Dose (%)" if self.is_dose_relative else f"Dose ({self.dose_unit})"
         if self.is_volume_relative:
             y_label = "Volume (%)"
         else:
@@ -950,7 +972,8 @@ class DVHWindow(PluginTagMixin):
 
                 # 1. Summary Metrics Table
                 writer.writerow(["# DVH Summary Metrics"])
-                writer.writerow(["Structure", "Volume (cm3)", "Min (Gy)", "Mean (Gy)", "Max (Gy)", "D98 (Gy)", "D50 (Gy)", "D2 (Gy)"])
+                u = self.dose_unit
+                writer.writerow(["Structure", "Volume (cm3)"] + [f"{n} ({u})" for _, n in self._DOSE_COLUMNS])
                 for c in export_curves:
                     writer.writerow([
                         c.roi_name,
@@ -964,12 +987,12 @@ class DVHWindow(PluginTagMixin):
                     ])
 
                 writer.writerow([])
-                writer.writerow(["# Cumulative Dose-Volume Curves (Dose in Gy, Volume in %)"])
+                writer.writerow([f"# Cumulative Dose-Volume Curves (Dose in {u}, Volume in %)"])
 
                 # Headers
                 headers = []
                 for c in export_curves:
-                    headers.extend([f"{c.roi_name}_Dose_Gy", f"{c.roi_name}_Vol_Pct"])
+                    headers.extend([f"{c.roi_name}_Dose_{u.replace('/', '_per_')}", f"{c.roi_name}_Vol_Pct"])
                 writer.writerow(headers)
 
                 # Curves data rows

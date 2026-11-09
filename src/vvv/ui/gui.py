@@ -663,6 +663,8 @@ class MainGUI:
                         ("Gy (Dose)", "Gy"),
                         ("counts", "counts"),
                         ("a.u. (Arbitrary)", "a.u."),
+                        ("Gy/h (Dose rate)", "Gy/h"),
+                        ("Gy/s (Dose rate)", "Gy/s"),
                     ]
 
                     def on_info_unit_change(sender, app_data, user_data):

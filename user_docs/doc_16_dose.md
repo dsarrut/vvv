@@ -13,15 +13,16 @@ The Dose plugin is strictly dedicated to volumes representing absorbed dose or d
 ### Activation Criteria
 
 * The tool is automatically active when:
-  * The active viewer's **Base image** has physical unit **`Gy`**, **`mGy`**, or **`Gy/decay`**.
-  * **OR** the active viewer's **Fusion overlay** has unit **`Gy`**, **`mGy`**, or **`Gy/decay`**.
+  * The active viewer's **Base image** has a dose unit: **`Gy`**, **`cGy`**, **`mGy`**, **`Gy/decay`**, or a dose rate **`Gy/h`**, **`Gy/s`**, **`mGy/h`**.
+  * **OR** the active viewer's **Fusion overlay** has one of these units.
+  * Values are shown in the image's own unit (isodoses, DVH axis and table, CSV export): a dose rate stays a dose rate, nothing is converted. The tool never changes the unit of an image.
 * **DICOM RTDOSE**: VVV automatically reads `DoseGridScaling` from DICOM RTDOSE series and sets `image.unit = "Gy"`. RTDOSE images therefore satisfy the activation requirement immediately upon loading.
-* **File name**: an image whose file name contains `dose`, with no unit from a [side-car file](doc_17_side_car_files.md) or DICOM, gets the unit `Gy` (shown as `(Inferred (Filename))` next to the unit).
+* **File name**: an image whose file name contains `dose`, with no unit from a [side-car file](doc_17_side_car_files.md) or DICOM, gets the unit `Gy` (shown as `(Inferred (Filename))` next to the unit). A name that also contains `rate` (`dose_rate.mhd`) gets no unit: choose `Gy/h` or `Gy/s` in the Active Viewer panel, or write it in the side-car file.
 
 ### Inactive State (Dose Unit Required)
 
 * When neither the base image nor the overlay has a Gy-compatible unit, the panel shows what it needs above its tools:
-  > *Needs a dose image (Gy, mGy or Gy/decay) as base or fused image.*
+  > *Needs a dose or dose-rate image (Gy, cGy, mGy, Gy/decay, Gy/h, Gy/s) as base or fused image.*
 
   followed by the current images and their units (`Current: Base: ct.nii.gz (HU)`). The tools stay visible but greyed out, and the Dose button of the nav column is muted.
 * An **"Enable (Set unit to Gy)"** button is provided:

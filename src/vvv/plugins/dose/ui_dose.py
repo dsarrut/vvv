@@ -62,7 +62,7 @@ class DosePluginUI(PluginTagMixin):
             # -------------------------------------------------------------
             with requirement_banner(
                 self._t("group_dose_requirement"),
-                "Needs a dose image (Gy, mGy or Gy/decay) as base or fused image.",
+                "Needs a dose or dose-rate image (Gy, cGy, mGy, Gy/decay, Gy/h, Gy/s) as base or fused image.",
                 self._t("text_current_units"),
                 cfg_c,
             ):
@@ -82,7 +82,9 @@ class DosePluginUI(PluginTagMixin):
                     "Radiation Dose Requirements:\n"
                     "- The dose plugin analyzes absorbed dose in Gray (Gy).\n"
                     "- DICOM RTDOSE files are automatically detected as Gy.\n"
-                    "- For other formats (NIfTI, MetaImage), clicking 'Enable' sets the unit to Gy.",
+                    "- For other formats (NIfTI, MetaImage), clicking 'Enable' sets the unit to Gy.\n"
+                    "- A dose rate (Gy/h, Gy/s) works too: set its unit in the Active Viewer panel.\n"
+                    "  Values are shown in the image's unit, never converted.",
                     api,
                 )
 
