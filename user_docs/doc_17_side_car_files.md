@@ -56,7 +56,7 @@ One file can hold the unit and the labels:
 * **Image list**: a paperclip on the action line of an image that uses side-car files: grey for a unit or labels, blue while a side-car transform is applied. Hover it to see the files and what each gives (`spect.json: unit bq`, `spect.tfm: transform, applied`). Click it for a small menu: the transform on/off box, view or edit the `.json`, edit the transform in the Transform panel, read a file again (after an edit outside VVV).
 * **JSON window**: the `.json` as text, with **Save** (written only if it is valid JSON, else the error is shown and the file is kept; the unit, or the ROI names and colors, are then read again), **Reload**, and a button to open the file in the system editor.
 * **Viewers**: with the file name shown (Active Viewer → Filename), an image with its side-car transform applied is named `spect.nii.gz ·tfm`.
-* **ROI panel**: a paperclip next to the save buttons when the listed ROIs come from a label map with a `.json` (names and colors), with `modified` after a rename or a color change in VVV; click it to open the file or read the names and colors again.
+* **ROI panel**: a paperclip next to the save buttons when the listed ROIs come from a label map with a `.json` (names and colors), with `modified` after a rename or a color change in VVV; click it to view or edit the `.json`, or to read the names and colors again (the masks are kept).
 
 ![Unit from the side-car file](images/doc_17_unit.png)
 
