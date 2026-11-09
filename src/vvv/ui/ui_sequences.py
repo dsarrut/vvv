@@ -52,8 +52,9 @@ def _handle_warnings_and_cleanup(gui, warnings, title, message):
 
 
 def _warn_rois_outside_fov(gui, controller, rois):
-    """[generator] Warn (modal) about the ROIs ({roi_id: ROIState}) lying
-    partially or fully outside their image field of view."""
+    """[generator] Warn about the ROIs ({roi_id: ROIState}) lying partially
+    or fully outside their image field of view: a message in the status bar
+    (the loading goes on, no dialog to close), the full list in the log."""
     outside = [
         state.name
         for r_id, state in rois.items()
@@ -62,12 +63,15 @@ def _warn_rois_outside_fov(gui, controller, rois):
     if not outside:
         return
     yield
+    logger.warning("ROIs partially or fully outside the image FOV: %s", ", ".join(outside))
     if len(outside) == 1:
-        msg = f"Warning: The loaded ROI '{outside[0]}' lies partially or fully outside the image field of view (FOV)."
+        msg = f"ROI '{outside[0]}' lies partially or fully outside the image FOV"
     else:
-        names_str = ", ".join(f"'{n}'" for n in outside)
-        msg = f"Warning: The loaded ROIs {names_str} lie partially or fully outside the image field of view (FOV)."
-    yield from _show_message_and_wait(gui, "ROI Warning", msg)
+        names = ", ".join(f"'{n}'" for n in outside[:3])
+        more = f" (+{len(outside) - 3} more)" if len(outside) > 3 else ""
+        msg = f"{len(outside)} ROIs lie partially or fully outside the image FOV: {names}{more}"
+    if gui is not None:
+        gui.show_status_message(msg, duration=10.0, color=gui.ui_cfg["colors"]["warning"])
 
 
 def _run_parallel(jobs, work, on_done, max_workers=4, poll_s=0.01):

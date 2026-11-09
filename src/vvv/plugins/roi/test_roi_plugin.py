@@ -2129,11 +2129,12 @@ class TestRoiPlugin(unittest.TestCase):
             for _ in generator:
                 pass
 
-        # Verify show_message was called on mock_gui with ROI Warning
-        mock_gui.show_message.assert_called_once_with(
-            "ROI Warning",
-            "Warning: The loaded ROI 'Out_ROI' lies partially or fully outside the image field of view (FOV).",
-        )
+        # A status bar warning, no dialog: the loading goes on
+        mock_gui.show_message.assert_not_called()
+        mock_gui.show_status_message.assert_called_once()
+        args, kwargs = mock_gui.show_status_message.call_args
+        assert args[0] == "ROI 'Out_ROI' lies partially or fully outside the image FOV"
+        assert kwargs["duration"] == 10.0
 
     def test_serialize_restore_round_trip(self):
         """Verify that roi_filter and roi_sort_order survive a serialize → restore cycle."""
