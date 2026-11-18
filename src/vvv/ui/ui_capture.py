@@ -1,5 +1,6 @@
 """Window capture, clipboard copy and screenshot files (global screenshot)."""
 
+import os
 from pathlib import Path
 
 
@@ -121,3 +122,24 @@ def capture_whole_window():
         return ImageGrab.grab(bbox=(vx, vy, vx + vw, vy + vh))
     except Exception:
         return None
+
+
+def capture_framebuffer_async(on_image):
+    """Reads back DearPyGui's own OpenGL framebuffer (no OS screen grab, so it
+    also works under Wayland, where X11 grabs are denied). Asynchronous: on the
+    next rendered frame, on_image is called with a PIL RGB Image, or None."""
+    import numpy as np
+    import dearpygui.dearpygui as dpg
+    from PIL import Image
+
+    def _callback(sender, buffer):
+        try:
+            w, h = buffer.get_width(), buffer.get_height()
+            arr = np.array(buffer, dtype=np.float32).reshape((h, w, 4))
+            rgb = (np.clip(arr[:, :, :3], 0.0, 1.0) * 255).astype(np.uint8)
+            img = Image.fromarray(rgb, "RGB")
+        except Exception:
+            img = None
+        on_image(img)
+
+    dpg.output_frame_buffer(callback=_callback)

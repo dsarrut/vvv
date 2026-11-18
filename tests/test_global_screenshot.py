@@ -96,3 +96,24 @@ def test_copy_image_to_clipboard_linux_failure_and_fallback(headless_gui_app, tm
                     # Check file actually exists in tmp_path
                     saved_files = list(tmp_path.glob("vvv_screenshot_*.png"))
                     assert len(saved_files) == 1
+
+
+def test_screenshot_falls_back_to_framebuffer(headless_gui_app):
+    """When the OS screen grab fails (e.g. Wayland), the DPG framebuffer is used."""
+    controller, gui, viewer, vs_id = headless_gui_app
+    test_img = Image.new("RGB", (40, 30), (10, 20, 30))
+
+    with patch("vvv.ui.gui.capture_whole_window", return_value=None):
+        with patch("vvv.ui.gui.capture_framebuffer_async", side_effect=lambda cb: cb(test_img)) as mock_fb:
+            with patch("vvv.ui.gui.copy_image_to_clipboard", return_value=True) as mock_copy:
+                with patch.object(gui, "show_status_message") as mock_status:
+                    gui.on_copy_window_screenshot_clicked(None, None, None)
+                    mock_fb.assert_called_once()
+                    mock_copy.assert_called_once_with(test_img)
+                    assert "copied to clipboard" in mock_status.call_args[0][0].lower()
+
+    with patch("vvv.ui.gui.capture_whole_window", return_value=None):
+        with patch("vvv.ui.gui.capture_framebuffer_async", side_effect=lambda cb: cb(None)):
+            with patch.object(gui, "show_status_message") as mock_status:
+                gui.on_copy_window_screenshot_clicked(None, None, None)
+                assert "could not capture" in mock_status.call_args[0][0].lower()
