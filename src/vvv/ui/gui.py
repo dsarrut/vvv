@@ -55,7 +55,12 @@ from vvv.ui.ui_debug import DebugOverlay
 from vvv.ui.ui_help import show_help_window
 from vvv.ui.ui_menu import build_menu_bar, refresh_recent_menu, refresh_rendering_menu
 from vvv.maths.image import fast_colorize_compiling_for
-from vvv.ui.ui_capture import capture_whole_window, copy_image_to_clipboard, save_screenshot_to_file
+from vvv.ui.ui_capture import (
+    capture_framebuffer_async,
+    capture_whole_window,
+    copy_image_to_clipboard,
+    save_screenshot_to_file,
+)
 import logging
 
 logger = logging.getLogger(__name__)
@@ -1734,17 +1739,28 @@ class MainGUI:
     def on_copy_window_screenshot_clicked(self, sender, app_data, user_data):
         img = capture_whole_window()
         if img is not None:
-            ok = copy_image_to_clipboard(img)
-            if ok:
-                self.show_status_message("Screenshot copied to clipboard")
-            else:
-                try:
-                    save_path = save_screenshot_to_file(img)
-                    self.show_status_message(f"Clipboard unavailable. Saved screenshot to {save_path.name}")
-                except Exception:
-                    self.show_status_message("Failed to copy screenshot to clipboard", color=[255, 100, 100])
-        else:
+            self._deliver_window_screenshot(img)
+            return
+        # OS screen grab failed (e.g. Wayland denies X11 grabs): read back
+        # DearPyGui's own framebuffer instead (delivered on the next frame).
+        try:
+            capture_framebuffer_async(self._deliver_window_screenshot)
+        except Exception:
+            logger.debug("framebuffer capture failed", exc_info=True)
+            self._deliver_window_screenshot(None)
+
+    def _deliver_window_screenshot(self, img):
+        if img is None:
             self.show_status_message("Could not capture window", color=[255, 100, 100])
+            return
+        if copy_image_to_clipboard(img):
+            self.show_status_message("Screenshot copied to clipboard")
+            return
+        try:
+            save_path = save_screenshot_to_file(img)
+            self.show_status_message(f"Clipboard unavailable. Saved screenshot to {save_path.name}")
+        except Exception:
+            self.show_status_message("Failed to copy screenshot to clipboard", color=[255, 100, 100])
 
     def _refresh_active_image_path_bar(self):
         """Keeps the centered image-path label in the top menu bar in sync with
